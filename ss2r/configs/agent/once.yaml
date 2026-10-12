@@ -40,7 +40,7 @@ intervention_task_reward: 0.
 # The behavior action is only taken if Q_R(s, a) >= recovery_threshold.
 recovery_threshold: 0.99
 # Q_R target: recovery_reward - 2 * penalty_scale * max(disagreement - margin, 0)
-penalty_scale: 5.0 # 1.0
+penalty_scale: 1.0
 margin: 0.01
 # Finite horizon H of the recovery prior, without discounting.
 recovery_horizon: 100
