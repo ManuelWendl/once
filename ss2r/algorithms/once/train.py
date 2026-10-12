@@ -9,6 +9,7 @@ import functools
 import multiprocessing
 import os
 import queue
+import shutil
 import time
 from typing import Any, Callable, Mapping, Optional, Tuple
 
@@ -281,9 +282,15 @@ def train(
         )
 
     def save(step: int) -> None:
-        if checkpoint_logdir:
-            checkpoint.save(
-                checkpoint_logdir, step, get_params(), config_dict.ConfigDict()
+        if not checkpoint_logdir:
+            return
+        checkpoint.save(checkpoint_logdir, step, get_params(), config_dict.ConfigDict())
+        # Only keep the latest checkpoint, such that the disk usage does not
+        # grow with the number of logs.
+        if last_save and last_save != step:
+            shutil.rmtree(
+                os.path.join(checkpoint_logdir, f"{last_save:012d}"),
+                ignore_errors=True,
             )
 
     env_steps = 0
