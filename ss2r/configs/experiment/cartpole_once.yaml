@@ -13,4 +13,4 @@ training:
 
 agent:
   optimism: 1.
-  recovery_threshold: 0.9
+  recovery_threshold: 1

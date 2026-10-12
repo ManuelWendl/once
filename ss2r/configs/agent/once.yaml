@@ -37,8 +37,8 @@ optimism: 0.
 # worst reward of the environment).
 intervention_task_reward: 0.
 # Recovery prior.
-# The behavior action is only taken if Q_R(s, a) > recovery_threshold.
-recovery_threshold: 0.9
+# The behavior action is only taken if Q_R(s, a) >= recovery_threshold.
+recovery_threshold: 1
 # Q_R target: recovery_reward - 2 * penalty_scale * max(disagreement - margin, 0)
 penalty_scale: 1.0
 margin: 0.0

@@ -293,7 +293,7 @@ def make_learner(
             ).mean(axis=-1)
             # The recovery prior takes over when it might not be able to recover
             # anymore. The behavior gets the worst task reward and terminates.
-            intervention = q_r <= recovery_threshold
+            intervention = q_r < recovery_threshold
             terminated = intervention | violates_fn(next_obs_mean)
             task_reward = jnp.where(
                 terminated,

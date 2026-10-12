@@ -83,7 +83,7 @@ def make_recovery_filter_fn(
                 observations,
                 behavioral_action,
             ).mean(axis=-1)
-            can_recover = q_r > recovery_threshold
+            can_recover = q_r >= recovery_threshold
             action = jnp.where(
                 can_recover[..., None], behavioral_action, recovery_action
             )
