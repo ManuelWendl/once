@@ -30,7 +30,7 @@ pessimistic_q: false
 n_critics: 2
 n_heads: 1
 model_ensemble_size: 5
-model_propagation: random
+model_propagation: nominal
 # Exploration bonus on the task reward.
 optimism: 0.
 # Task reward given to the behavior when the recovery prior takes over (the
@@ -38,18 +38,18 @@ optimism: 0.
 intervention_task_reward: 0.
 # Recovery prior.
 # The behavior action is only taken if Q_R(s, a) >= recovery_threshold.
-recovery_threshold: 1
+recovery_threshold: 0.99
 # Q_R target: recovery_reward - 2 * penalty_scale * max(disagreement - margin, 0)
 penalty_scale: 1.0
 margin: 0.01
 # Finite horizon H of the recovery prior, without discounting.
 recovery_horizon: 100
 recovery_discounting: 1.0
-recovery_q_learning_rate: 3e-5
+recovery_q_learning_rate: 1e-4
 num_recovery_rollouts: 256
 recovery_unroll_length: 4
 recovery_batch_size: 256
-recovery_grad_updates_per_step: 4
+recovery_grad_updates_per_step: 10
 recovery_replay_size: 200000
 # Runtime.
 # Whether the actor runs in its own process, never waiting for the learner.
