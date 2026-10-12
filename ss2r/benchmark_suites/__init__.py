@@ -103,7 +103,7 @@ def get_wrap_env_fn(cfg):
             return env
 
         out = wrap_fn, wrap_fn
-    elif cfg.environment.task_name == "go_to_goal":
+    elif cfg.environment.task_name in ("go_to_goal", "go_to_goal_recovery"):
 
         def wrap_fn(env):
             env = GoToGoalObservationWrapper(env)
@@ -482,11 +482,17 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
 def make_safety_gym_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
     from ss2r.benchmark_suites.mujoco_playground import wrap_for_brax_training
     from ss2r.benchmark_suites.safety_gym import go_to_goal
+    from ss2r.benchmark_suites.safety_gym import recovery as go_to_goal_recovery
 
     task_cfg = get_task_config(cfg)
-    train_env = go_to_goal.GoToGoal(**task_cfg.task_params)
+    env_classes = {
+        "go_to_goal": go_to_goal.GoToGoal,
+        "go_to_goal_recovery": go_to_goal_recovery.GoToGoalRecovery,
+    }
+    env_class = env_classes[task_cfg.task_name]
+    train_env = env_class(**task_cfg.task_params)
     train_env = train_wrap_env_fn(train_env)
-    eval_env = go_to_goal.GoToGoal(**task_cfg.task_params)
+    eval_env = env_class(**task_cfg.task_params)
     eval_env = eval_wrap_env_fn(eval_env)
     train_key, eval_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed))
     train_randomization_fn = (
@@ -503,6 +509,8 @@ def make_safety_gym_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         action_repeat=cfg.training.action_repeat,
         augment_state=False,
         hard_resets=cfg.training.hard_resets,
+        terminate_on_timeout=task_cfg.get("terminate_on_timeout", False),
+        resample_resets=task_cfg.get("resample_resets", False),
     )
     eval_randomization_fn = (
         prepare_randomization_fn(
@@ -520,6 +528,7 @@ def make_safety_gym_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         action_repeat=cfg.training.action_repeat,
         randomization_fn=eval_randomization_fn,
         augment_state=False,
+        terminate_on_timeout=task_cfg.get("terminate_on_timeout", False),
     )
     return train_env, eval_env
 
@@ -570,6 +579,7 @@ randomization_fns = {
         "AlohaSinglePegInsertion"
     ),
     "go_to_goal": go_to_goal.domain_randomization,
+    "go_to_goal_recovery": go_to_goal.domain_randomization,
     "PandaPickCubeCartesian": franka_vision_randomize,
     "PandaPickCubeCartesianExtended": pick_cartesian.domain_randomize,
 }
@@ -638,4 +648,5 @@ render_fns = {
         mujoco_playground.render, num_envs=None, camera="front"
     ),
     "go_to_goal": functools.partial(safety_gym.render, camera="fixedfar"),
+    "go_to_goal_recovery": functools.partial(safety_gym.render, camera="fixedfar"),
 }

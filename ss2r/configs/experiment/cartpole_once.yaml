@@ -12,5 +12,5 @@ training:
   action_repeat: 4
 
 agent:
-  optimism: 5.
+  optimism: 1.
   recovery_threshold: 0.99
