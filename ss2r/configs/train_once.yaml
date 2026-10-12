@@ -18,7 +18,8 @@ hydra:
           - wandb
     chdir: true
 
-log_dir: outputs
+# Set ONCE_LOG_DIR to write runs (logs, checkpoints) outside of the repository.
+log_dir: ${oc.env:ONCE_LOG_DIR,outputs}
 
 writers:
   - wandb

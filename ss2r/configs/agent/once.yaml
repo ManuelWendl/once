@@ -41,7 +41,7 @@ intervention_task_reward: 0.
 recovery_threshold: 1
 # Q_R target: recovery_reward - 2 * penalty_scale * max(disagreement - margin, 0)
 penalty_scale: 1.0
-margin: 0.0
+margin: 0.01
 # Finite horizon H of the recovery prior, without discounting.
 recovery_horizon: 100
 recovery_discounting: 1.0
