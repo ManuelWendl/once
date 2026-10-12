@@ -38,7 +38,7 @@ optimism: 0.
 intervention_task_reward: 0.
 # Recovery prior.
 # The behavior action is only taken if Q_R(s, a) >= recovery_threshold.
-recovery_threshold: 0.99
+recovery_threshold: 0.995
 # Q_R target: recovery_reward - 2 * penalty_scale * max(disagreement - margin, 0)
 penalty_scale: 1.0
 margin: 0.01
@@ -49,7 +49,7 @@ recovery_q_learning_rate: 1e-4
 num_recovery_rollouts: 256
 recovery_unroll_length: 4
 recovery_batch_size: 256
-recovery_grad_updates_per_step: 10
+recovery_grad_updates_per_step: 5
 recovery_replay_size: 200000
 # Runtime.
 # Whether the actor runs in its own process, never waiting for the learner.
