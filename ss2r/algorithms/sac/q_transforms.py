@@ -244,6 +244,50 @@ class LCBReward(QTransformation):
         return target_q
 
 
+class PessimisticReward(QTransformation):
+    """Pessimistic target for the recovery prior.
+
+    Uses the recovery reward (not the task reward), penalized by the
+    disagreement: r - 2L * max(disagreement - m, 0). There is no entropy term,
+    such that the value keeps its meaning under a finite, undiscounted horizon.
+
+    The recovery reward is given at most once, so the return can never exceed
+    `max_value`. The bootstrapped value and the target are bounded accordingly:
+    without discounting, nothing else stops the value from drifting upwards.
+    """
+
+    required_extras = ("disagreement", "recovery_reward")
+
+    def __init__(
+        self, penalty_scale: float, margin: float, max_value: float = 1.0
+    ) -> None:
+        self.penalty_scale = penalty_scale
+        self.margin = margin
+        self.max_value = max_value
+
+    def __call__(
+        self,
+        transitions: Transition,
+        q_fn: Callable[[Params, jax.Array], jax.Array],
+        policy: Callable[[jax.Array], tuple[jax.Array, jax.Array]],
+        gamma: float,
+        alpha: jax.Array | None = None,
+        scale: float = 1.0,
+        key: jax.Array | None = None,
+    ):
+        next_action, _ = policy(transitions.next_observation)
+        next_q = q_fn(transitions.next_observation, next_action)
+        next_v = jnp.minimum(next_q.mean(axis=-1), self.max_value * scale)
+        disagreement = transitions.extras["state_extras"]["disagreement"]
+        recovery_reward = transitions.extras["state_extras"]["recovery_reward"]
+        penalty = 2.0 * self.penalty_scale * jnp.maximum(disagreement - self.margin, 0)
+        target_q = (
+            recovery_reward - penalty
+        ) * scale + transitions.discount * gamma * next_v
+        target_q = jnp.minimum(target_q, self.max_value * scale)
+        return jax.lax.stop_gradient(target_q)
+
+
 class SACCost(QTransformation):
     def __call__(
         self,
@@ -302,6 +346,11 @@ def get_reward_q_transform(cfg):
         )
     elif cfg.agent.reward_robustness.name == "lcb_reward":
         robustness = LCBReward(use_bro=cfg.agent.use_bro)
+    elif cfg.agent.reward_robustness.name == "pessimistic_recovery":
+        robustness = PessimisticReward(
+            penalty_scale=cfg.agent.reward_robustness.penalty_scale,
+            margin=cfg.agent.reward_robustness.margin,
+        )
     else:
         raise ValueError("Unknown robustness")
     return robustness

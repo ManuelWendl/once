@@ -303,6 +303,8 @@ def train(
         extras["state_extras"]["cost"] = jnp.zeros(())  # type: ignore
     if isinstance(cost_q_transform, UCBCost):
         extras["state_extras"]["disagreement"] = jnp.zeros(())  # type: ignore
+    for name in getattr(reward_q_transform, "required_extras", ()):
+        extras["state_extras"][name] = jnp.zeros(())  # type: ignore
     dummy_transition = Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
         observation=dummy_obs,
         action=dummy_action,
@@ -414,6 +416,9 @@ def train(
         extra_fields += ("cost",)  # type: ignore
     if isinstance(cost_q_transform, UCBCost):
         extra_fields += ("disagreement",)  # type: ignore
+    for name in getattr(reward_q_transform, "required_extras", ()):
+        if name not in extra_fields:
+            extra_fields += (name,)  # type: ignore
 
     def sgd_step(
         carry: Tuple[TrainingState, ReplayBufferState, PRNGKey, int], unused_t

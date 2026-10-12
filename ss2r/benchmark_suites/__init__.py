@@ -15,6 +15,9 @@ from ss2r.benchmark_suites.brax.ant import ant
 from ss2r.benchmark_suites.brax.cartpole import cartpole
 from ss2r.benchmark_suites.brax.humanoid import humanoid
 from ss2r.benchmark_suites.mujoco_playground.cartpole import cartpole as dm_cartpole
+from ss2r.benchmark_suites.mujoco_playground.cartpole import (
+    recovery as recovery,
+)
 from ss2r.benchmark_suites.mujoco_playground.cartpole.spidr_cartpole import (
     VisionSPiDRCartpole,
 )
@@ -127,6 +130,7 @@ def get_wrap_env_fn(cfg):
                 cfg.agent.propagation.num_envs,
                 cfg.agent.propagation.lambda_,
                 cfg.agent.propagation.alpha,
+                cfg.agent.propagation.get("statistic", "variance"),
             )
             return env
 
@@ -445,6 +449,8 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         vision=vision,
         num_vision_envs=cfg.training.num_envs,
         nonepisodic=cfg.training.nonepisodic,
+        terminate_on_timeout=task_cfg.get("terminate_on_timeout", False),
+        resample_resets=task_cfg.get("resample_resets", False),
     )
     if vision:
         return train_env, train_env
@@ -468,6 +474,7 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         action_repeat=cfg.training.action_repeat,
         randomization_fn=eval_randomization_fn,
         augment_state=False,
+        terminate_on_timeout=task_cfg.get("terminate_on_timeout", False),
     )
     return train_env, eval_env
 
@@ -549,6 +556,7 @@ randomization_fns = {
     "CartpoleSwingupSparse": dm_cartpole.domain_randomization,
     "CartpoleBalanceSparse": dm_cartpole.domain_randomization,
     "CartpoleBalance": dm_cartpole.domain_randomization,
+    "CartpoleRecovery": dm_cartpole.domain_randomization,
     "HumanoidWalk": dm_humanoid.domain_randomization,
     "HumanoidStand": dm_humanoid.domain_randomization,
     "NonEpisodicHumanoidStand": dm_humanoid.domain_randomization,
@@ -606,6 +614,7 @@ render_fns = {
     "CartpoleSwingupSparse": functools.partial(mujoco_playground.render),
     "CartpoleBalanceSparse": functools.partial(mujoco_playground.render),
     "CartpoleBalance": functools.partial(mujoco_playground.render),
+    "CartpoleRecovery": functools.partial(mujoco_playground.render),
     "QuadrupedWalk": functools.partial(mujoco_playground.render, camera="x"),
     "QuadrupedRun": functools.partial(mujoco_playground.render, camera="x"),
     "SafeQuadrupedWalk": functools.partial(mujoco_playground.render, camera="x"),

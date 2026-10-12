@@ -1,0 +1,17 @@
+domain_name: mujoco_cpu
+
+task_name: CartpoleSwingupCPU
+task_params:
+  ctrl_dt: 0.01
+  sim_dt: 0.01
+  # Safe operable region R.
+  recovery_position_bound: 1.0
+  recovery_velocity_bound: 0.5
+  # Hard constraint on the cart position.
+  hard_position_bound: 1.5
+
+# Offsets to the nominal model, playing the role of the sim-to-real gap.
+real_params:
+  pole_length: 0.
+  pole_mass: 0.
+  gear: 0.

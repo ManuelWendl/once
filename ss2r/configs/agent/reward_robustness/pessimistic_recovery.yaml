@@ -1,0 +1,4 @@
+name: pessimistic_recovery
+# target = recovery_reward - 2 * penalty_scale * max(disagreement - margin, 0)
+penalty_scale: 1.0
+margin: 0.0

@@ -1,0 +1,29 @@
+# @package _global_
+defaults:
+  - mujoco_playground_dm_control
+  - override /environment: cartpole_recovery
+  - override /agent/propagation: spidr
+  - override /agent/reward_robustness: pessimistic_recovery
+  - _self_
+
+training:
+  num_timesteps: 3000000
+  action_repeat: 4
+  # Recovery horizon H = episode_length / action_repeat = 100 steps.
+  episode_length: 400
+  safe: false
+  train_domain_randomization: true
+  eval_domain_randomization: true
+  render: false
+
+agent:
+  activation: swish
+  # Finite horizon, no discounting.
+  discounting: 1.0
+  propagation:
+    lambda_: 1.
+    alpha: 0.
+    statistic: std
+  reward_robustness:
+    penalty_scale: 1.0
+    margin: 0.0

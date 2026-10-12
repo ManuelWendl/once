@@ -1,0 +1,65 @@
+name: once
+learning_rate: 3e-4
+critic_learning_rate: 3e-4
+model_learning_rate: 3e-4
+alpha_learning_rate: 3e-4
+init_alpha: 1.
+min_alpha: 0.
+target_entropy: null
+discounting: 0.99
+reward_scaling: 1.0
+tau: 0.005
+normalize_observations: true
+batch_size: 256
+sac_batch_size: 256
+min_replay_size: 1000
+max_replay_size: 1000000
+# Updates per learner step. Keep a learner step short, such that new policies
+# reach the actor quickly.
+model_grad_updates_per_step: 16
+critic_grad_updates_per_step: 16
+num_critic_updates_per_actor_update: 1
+num_model_rollouts: 4096
+unroll_length: 1
+policy_hidden_layer_sizes: [256, 256, 256]
+value_hidden_layer_sizes: [512, 512]
+model_hidden_layer_sizes: [256, 256, 256]
+activation: swish
+use_bro: true
+pessimistic_q: false
+n_critics: 2
+n_heads: 1
+model_ensemble_size: 5
+model_propagation: random
+# Exploration bonus on the task reward.
+optimism: 0.
+# Task reward given to the behavior when the recovery prior takes over (the
+# worst reward of the environment).
+intervention_task_reward: 0.
+# Recovery prior.
+# The behavior action is only taken if Q_R(s, a) > recovery_threshold.
+recovery_threshold: 0.5
+# Q_R target: recovery_reward - 2 * penalty_scale * max(disagreement - margin, 0)
+penalty_scale: 1.0
+margin: 0.0
+# Finite horizon H of the recovery prior, without discounting.
+recovery_horizon: 100
+recovery_discounting: 1.0
+recovery_q_learning_rate: 3e-5
+num_recovery_rollouts: 256
+recovery_unroll_length: 4
+recovery_batch_size: 256
+recovery_grad_updates_per_step: 4
+recovery_replay_size: 200000
+# Runtime.
+# Whether the actor runs in its own process, never waiting for the learner.
+asynchronous: true
+# Run the actor's policy on a single thread: slower on average, but its
+# latency does not depend on the load of the machine.
+actor_single_threaded: false
+# Number of transitions that the actor sends at once.
+chunk_size: 8
+# Publish the policy to the actor every this many learner steps.
+publish_every: 1
+# Speed of the environment relative to real time. Null runs as fast as possible.
+realtime_factor: 1.0

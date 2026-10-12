@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - override /agent: once
+  - override /environment: cartpole_swingup_cpu
+  - _self_
+
+prior:
+  experiment: cartpole_recovery_prior
+
+training:
+  num_timesteps: 200000
+  action_repeat: 4
+
+agent:
+  optimism: 1.
+  recovery_threshold: 0.5

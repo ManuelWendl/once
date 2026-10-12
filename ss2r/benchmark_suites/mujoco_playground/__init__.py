@@ -63,6 +63,8 @@ def wrap_for_brax_training(
     nonepisodic: bool = False,
     *,
     augment_state: bool = False,
+    terminate_on_timeout: bool = False,
+    resample_resets: bool = False,
 ) -> mujoco_playground_wrapper.Wrapper:
     """Common wrapper pattern for all brax training agents.
 
@@ -75,6 +77,9 @@ def wrap_for_brax_training(
       action_repeat: how many repeated actions to take per step
       randomization_fn: randomization function that produces a vectorized model
         and in_axes to vmap over
+      terminate_on_timeout: whether reaching the episode length is a true
+        terminal state instead of a truncation
+      resample_resets: whether to sample a new initial state on every reset
 
     Returns:
       An environment that is wrapped with Episode and AutoReset wrappers.  If the
@@ -93,9 +98,13 @@ def wrap_for_brax_training(
         )
     if nonepisodic:
         env = wrappers.NonEpisodicWrapper(env, action_repeat)
+    elif terminate_on_timeout:
+        env = wrappers.TerminalTimeoutEpisodeWrapper(env, episode_length, action_repeat)
     else:
         env = wrappers.CostEpisodeWrapper(env, episode_length, action_repeat)
-    if hard_resets:
+    if resample_resets:
+        env = wrappers.ResampleAutoResetWrapper(env)
+    elif hard_resets:
         env = wrappers.HardAutoResetWrapper(env)
     else:
         env = mujoco_playground_wrapper.BraxAutoResetWrapper(env)

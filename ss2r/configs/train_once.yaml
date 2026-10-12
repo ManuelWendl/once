@@ -1,0 +1,52 @@
+defaults:
+  - _self_
+  - agent: once
+  - environment: cartpole_swingup_cpu
+
+hydra:
+  run:
+    dir: ${log_dir}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: ${log_dir}/${hydra.job.name}
+    subdir: ${hydra.job.override_dirname}/seed=${training.seed}
+  job:
+    config:
+      override_dirname:
+        exclude_keys:
+          - log_dir
+          - training.seed
+          - wandb
+    chdir: true
+
+log_dir: outputs
+
+writers:
+  - wandb
+  - jsonl
+  - stderr
+
+wandb:
+  group: null
+  notes: null
+  name: ${hydra:job.override_dirname}
+  entity: null
+
+jit: true
+
+# The recovery prior is trained in simulation with train_brax's configuration.
+prior:
+  experiment: cartpole_recovery_prior
+  # Overrides of the prior's configuration. From the command line:
+  # 'prior.overrides=["training.num_timesteps=1000000"]'
+  overrides: []
+  # Skip training the prior and load it from a checkpoint instead.
+  checkpoint_path: null
+  wandb_id: null
+
+training:
+  seed: 0
+  # Environment steps of the online phase.
+  num_timesteps: 200000
+  action_repeat: 4
+  log_every: 2000
+  store_checkpoint: true

@@ -1,0 +1,33 @@
+defaults:
+  - mujoco_playground_base
+
+task_name: CartpoleRecovery
+task_params:
+  action_repeat: 1
+  ctrl_dt: 0.01
+  episode_length: 1000
+  sim_dt: 0.01
+  vision: false
+  # Safe operable region R.
+  recovery_position_bound: 1.0
+  recovery_velocity_bound: 0.5
+  # Hard constraint on the cart position.
+  hard_position_bound: 1.5
+  reset_cart_velocity: 2.0
+  reset_pole_velocity: 5.0
+
+# The horizon is a true terminal state (no bootstrapping).
+terminate_on_timeout: true
+# Sample a new initial state on every reset.
+resample_resets: true
+
+# Sample uniformly around the nominal value
+train_params:
+  pole_length: [-0.1, 0.1]
+  pole_mass: [0., 0.]
+  gear: [-2.5, 2.5]
+
+eval_params:
+  pole_length: [-0.1, 0.1]
+  pole_mass: [0., 0.]
+  gear: [-2.5, 2.5]

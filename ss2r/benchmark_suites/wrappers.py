@@ -174,6 +174,18 @@ class CostEpisodeWrapper(brax_training.EpisodeWrapper):
         return state.replace(done=done)
 
 
+class TerminalTimeoutEpisodeWrapper(CostEpisodeWrapper):
+    """Treats reaching the episode length as a true terminal state.
+
+    The value of the last state is not bootstrapped, giving a finite horizon.
+    """
+
+    def step(self, state: State, action: jax.Array) -> State:
+        state = super().step(state, action)
+        state.info["truncation"] = jp.zeros_like(state.info["truncation"])
+        return state
+
+
 class NonEpisodicWrapper(Wrapper):
     def __init__(self, env: Env, action_repeat: int):
         super().__init__(env)
@@ -279,8 +291,19 @@ def _get_obs(state):
 
 
 class SPiDR(Wrapper):
-    def __init__(self, env, randomzation_fn, num_perturbed_envs, lambda_, alpha):
+    def __init__(
+        self,
+        env,
+        randomzation_fn,
+        num_perturbed_envs,
+        lambda_,
+        alpha,
+        statistic="variance",
+    ):
         super().__init__(env)
+        if statistic not in ("variance", "std"):
+            raise ValueError(f"Unknown disagreement statistic {statistic}")
+        self.statistic = statistic
         if hasattr(env, "sys"):
             self.perturbed_env = DomainRandomizationVmapWrapper(
                 env, randomzation_fn, augment_state=False
@@ -326,7 +349,10 @@ class SPiDR(Wrapper):
         return nstate
 
     def _compute_disagreement(self, next_obs: jax.Array) -> jax.Array:
-        variance = jp.nanvar(next_obs, axis=0).mean(-1)
+        if self.statistic == "std":
+            variance = jp.nanstd(next_obs, axis=0).mean(-1)
+        else:
+            variance = jp.nanvar(next_obs, axis=0).mean(-1)
         variance = jp.where(jp.isnan(variance), 0.0, variance)
         return jp.clip(variance, a_max=1000.0) * self.lambda_ + self.alpha
 
@@ -386,6 +412,47 @@ class HardAutoResetWrapper(Wrapper):
             state.info["reset_rng"],
         )
         return state.replace(**{data_name: new_data, "obs": obs})
+
+
+class ResampleAutoResetWrapper(Wrapper):
+    """Automatically resets envs that are done to a newly sampled initial state."""
+
+    def reset(self, rng: jax.Array) -> State | MjxState:
+        rng, sample_rng = jax.vmap(jax.random.split, out_axes=1)(rng)
+        state = self.env.reset(sample_rng)
+        state.info["reset_rng"] = rng
+        return state
+
+    def step(self, state: State | MjxState, action: jax.Array) -> State | MjxState:
+        if "steps" in state.info:
+            steps = state.info["steps"]
+            steps = jp.where(state.done, jp.zeros_like(steps), steps)
+            state.info.update(steps=steps)
+        state = state.replace(done=jp.zeros_like(state.done))
+        state = self.env.step(state, action)
+        if hasattr(state, "pipeline_state"):
+            data_name = "pipeline_state"
+        elif hasattr(state, "data"):
+            data_name = "data"
+        else:
+            raise NotImplementedError
+        rng, sample_rng = jax.vmap(jax.random.split, out_axes=1)(
+            state.info["reset_rng"]
+        )
+        reset_state = self.env.reset(sample_rng)
+
+        def where_done(x, y):
+            done = state.done
+            if done.shape:
+                done = jp.reshape(done, [x.shape[0]] + [1] * (len(x.shape) - 1))
+            return jp.where(done, x, y)
+
+        data = jax.tree.map(
+            where_done, getattr(reset_state, data_name), getattr(state, data_name)
+        )
+        obs = jax.tree.map(where_done, reset_state.obs, state.obs)
+        state.info["reset_rng"] = rng
+        return state.replace(**{data_name: data, "obs": obs})
 
 
 class Saute(Wrapper):
