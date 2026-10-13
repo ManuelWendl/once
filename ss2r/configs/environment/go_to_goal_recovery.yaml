@@ -6,7 +6,8 @@ defaults:
 task_name: go_to_goal_recovery
 task_params:
   # Safe operable region R: (near) full stop, clear of all obstacles.
-  recovery_stop_speed: 0.05
+  # Below about 0.17 m/s a zero command stops the robot within a centimeter.
+  recovery_stop_speed: 0.15
   # Minimum distance to the center of any obstacle, to keep at all times.
   # Hazards have a radius of 0.2, the robot touches a vase from 0.3.
   recovery_min_distance: 0.35

@@ -21,7 +21,9 @@ _VELOCIMETER = slice(-5, -3)
 # Hazards have a radius of 0.2 and count as violated when the center of the
 # robot is inside. The robot touches a vase from a distance of 0.3.
 RECOVERY_MIN_DISTANCE = 0.35
-RECOVERY_STOP_SPEED = 0.05
+# Below about 0.17 m/s the thrust actuator, a velocity servo, is not saturated
+# anymore: a zero command then stops the robot within a centimeter.
+RECOVERY_STOP_SPEED = 0.15
 # The nominal robot reaches 1.5 m/s and 3 rad/s.
 RESET_SPEED = 1.5
 RESET_ANGULAR_VELOCITY = 3.0
