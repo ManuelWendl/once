@@ -5,7 +5,6 @@ stops to wait for training: policies are trained asynchronously and deployed
 as soon as they are available.
 """
 
-import functools
 import multiprocessing
 import os
 import queue
@@ -31,7 +30,6 @@ from ss2r.algorithms.once.networks import make_networks
 from ss2r.algorithms.once.shared_params import SharedParams
 from ss2r.algorithms.sac.types import Metrics, Transition
 from ss2r.benchmark_suites import mujoco_cpu
-from ss2r.benchmark_suites.mujoco_playground.cartpole import recovery
 
 
 def _to_transition(chunk: Mapping[str, np.ndarray]) -> Transition:
@@ -184,7 +182,6 @@ def train(
 ):
     """Trains online. `num_timesteps` and `log_every` are in environment steps."""
     c = agent_cfg
-    task_params = environment_cfg["task_params"]
     # Only used to query the sizes, the actor owns the environment.
     env = mujoco_cpu.make(environment_cfg, action_repeat, seed)
     observation_size, action_size, control_dt = (
@@ -196,15 +193,7 @@ def train(
     mbpo_network, recovery_network, normalize_fn = make_networks(
         agent_cfg, prior_agent_cfg, observation_size, action_size
     )
-    recovery_reward_fn = functools.partial(
-        recovery.recovery_reward_fn,
-        position_bound=task_params["recovery_position_bound"],
-        velocity_bound=task_params["recovery_velocity_bound"],
-        hard_position_bound=task_params["hard_position_bound"],
-    )
-    violates_fn = functools.partial(
-        recovery.violates, hard_position_bound=task_params["hard_position_bound"]
-    )
+    recovery_reward_fn, violates_fn = mujoco_cpu.get_recovery_fns(environment_cfg)
     init, insert, learner_step = make_learner(
         mbpo_network=mbpo_network,
         recovery_network=recovery_network,
@@ -298,6 +287,7 @@ def train(
     control_steps = 0
     learner_steps = 0
     violations = 0.0
+    costs = 0.0
     next_log = log_every
     window: dict[str, float] = {}
     window_learner_steps = 0
@@ -317,6 +307,7 @@ def train(
                 control_steps += c["chunk_size"]
                 env_steps += c["chunk_size"] * action_repeat
                 violations += stats["violations"]
+                costs += stats.get("cost", 0.0)
                 for name, value in stats.items():
                     if name == "max_step_time":
                         window[name] = max(window.get(name, 0.0), value)
@@ -368,6 +359,9 @@ def train(
                     "learner/steps": learner_steps,
                     "training/walltime": time.time() - start_time,
                 }
+                if "cost" in window:
+                    # Environment steps with a cost, for environments with one.
+                    metrics["online/costs"] = costs
                 logging.info(metrics)
                 progress_fn(env_steps, metrics)
                 save(env_steps)

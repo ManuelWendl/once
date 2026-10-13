@@ -123,6 +123,8 @@ class Actor:
         stats["intervention"] += intervention
         stats["q_r"] += float(q_r)
         stats["in_recovery_set"] += float(info["in_recovery_set"])
+        if "cost" in info:
+            stats["cost"] = stats.get("cost", 0.0) + float(info["cost"])
         if terminated:
             # The hard constraint was violated, the system has to be reset.
             stats["violations"] += 1

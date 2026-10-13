@@ -107,6 +107,17 @@ class ObjectSpec(NamedTuple):
     num_objects: int
 
 
+def make_objects_spec(
+    num_hazards: int, num_vases: int, goal_size: float
+) -> dict[str, ObjectSpec]:
+    return {
+        "robot": ObjectSpec(0.4, 1),
+        "goal": ObjectSpec(goal_size + 0.05, 1),
+        "hazards": ObjectSpec(0.18, num_hazards),
+        "vases": ObjectSpec(0.15, num_vases),
+    }
+
+
 def geoms_colliding(state: mjx.Data, geom1: int, geom2: int) -> jax.Array:
     """Return True if the two geoms are colliding."""
     return get_collision_info(state.contact, geom1, geom2)[0] < 0
@@ -197,12 +208,7 @@ class GoToGoal(mjx_env.MjxEnv):
         goal_size: float = 0.3,
     ):
         self.goal_size = goal_size
-        self.spec = {
-            "robot": ObjectSpec(0.4, 1),
-            "goal": ObjectSpec(goal_size + 0.05, 1),
-            "hazards": ObjectSpec(0.18, num_hazards),
-            "vases": ObjectSpec(0.15, num_vases),
-        }
+        self.spec = make_objects_spec(num_hazards, num_vases, goal_size)
         mj_spec: mj.MjSpec = mj.MjSpec.from_file(filename=str(_XML_PATH), assets={})
         layout = _sample_layout(jax.random.PRNGKey(seed), self.spec)
         build_arena(

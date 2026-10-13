@@ -1,9 +1,16 @@
-from typing import Any, Mapping
+import functools
+from typing import Any, Callable, Mapping
 
 from ss2r.benchmark_suites.mujoco_cpu.cartpole import CartpoleSwingupCPU, RealEnv
+from ss2r.benchmark_suites.mujoco_cpu.go_to_goal import GoToGoalCPU
+from ss2r.benchmark_suites.mujoco_playground.cartpole import (
+    recovery as cartpole_recovery,
+)
+from ss2r.benchmark_suites.safety_gym import recovery as go_to_goal_recovery
 
 _envs = {
     "CartpoleSwingupCPU": CartpoleSwingupCPU,
+    "GoToGoalCPU": GoToGoalCPU,
 }
 
 
@@ -18,3 +25,33 @@ def make(environment_cfg: Mapping[str, Any], action_repeat: int, seed: int) -> R
         action_repeat=action_repeat,
         seed=seed,
     )
+
+
+def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Callable]:
+    """The recovery reward and the constraint violation of an observation."""
+    task_name = environment_cfg["task_name"]
+    task_params = environment_cfg["task_params"]
+    if task_name == "CartpoleSwingupCPU":
+        recovery_reward_fn = functools.partial(
+            cartpole_recovery.recovery_reward_fn,
+            position_bound=task_params["recovery_position_bound"],
+            velocity_bound=task_params["recovery_velocity_bound"],
+            hard_position_bound=task_params["hard_position_bound"],
+        )
+        violates_fn = functools.partial(
+            cartpole_recovery.violates,
+            hard_position_bound=task_params["hard_position_bound"],
+        )
+    elif task_name == "GoToGoalCPU":
+        recovery_reward_fn = functools.partial(
+            go_to_goal_recovery.recovery_reward_fn,
+            min_distance=task_params["recovery_min_distance"],
+            stop_speed=task_params["recovery_stop_speed"],
+        )
+        violates_fn = functools.partial(
+            go_to_goal_recovery.violates,
+            min_distance=task_params["recovery_min_distance"],
+        )
+    else:
+        raise ValueError(f"Unknown CPU environment {task_name}")
+    return recovery_reward_fn, violates_fn
