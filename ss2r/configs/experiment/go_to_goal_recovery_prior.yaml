@@ -9,7 +9,7 @@ defaults:
 training:
   num_timesteps: 5000000
   action_repeat: 4
-  # Recovery horizon H = episode_length / action_repeat = 50 steps (4 seconds).
+  # Recovery horizon H = episode_length / action_repeat = 25 steps (2 seconds).
   episode_length: 100
   safe: false
   train_domain_randomization: true

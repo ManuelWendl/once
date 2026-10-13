@@ -45,12 +45,13 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
     elif task_name == "GoToGoalCPU":
         recovery_reward_fn = functools.partial(
             go_to_goal_recovery.recovery_reward_fn,
-            min_distance=task_params["recovery_min_distance"],
-            stop_speed=task_params["recovery_stop_speed"],
+            recovery_distance=task_params["recovery_distance"],
+            recovery_speed=task_params["recovery_speed"],
+            hard_distance=task_params["hard_distance"],
         )
         violates_fn = functools.partial(
             go_to_goal_recovery.violates,
-            min_distance=task_params["recovery_min_distance"],
+            hard_distance=task_params["hard_distance"],
         )
     else:
         raise ValueError(f"Unknown CPU environment {task_name}")

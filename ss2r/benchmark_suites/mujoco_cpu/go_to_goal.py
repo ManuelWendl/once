@@ -75,8 +75,8 @@ class GoToGoalCPU:
     """Same model, observation and task reward as the (simulated) go to goal.
 
     The observation is the one of `GoToGoalObservationWrapper`. An episode
-    never ends, unless the robot gets closer to an obstacle than the minimum
-    distance. In this case `terminated` is returned and the caller should reset.
+    never ends, unless the hard constraint on the distance to the obstacles is
+    violated. In this case `terminated` is returned and the caller should reset.
     """
 
     def __init__(
@@ -84,8 +84,9 @@ class GoToGoalCPU:
         num_hazards: int = 8,
         num_vases: int = 1,
         goal_size: float = 0.3,
-        recovery_min_distance: float = recovery.RECOVERY_MIN_DISTANCE,
-        recovery_stop_speed: float = recovery.RECOVERY_STOP_SPEED,
+        recovery_distance: float = recovery.RECOVERY_DISTANCE,
+        recovery_speed: float = recovery.RECOVERY_SPEED,
+        hard_distance: float = recovery.HARD_DISTANCE,
         action_repeat: int = 1,
         real_params: Mapping[str, Any] | None = None,
         seed: int = 0,
@@ -102,8 +103,9 @@ class GoToGoalCPU:
         self.data = mujoco.MjData(self.model)
         model = self.model
         self._action_repeat = action_repeat
-        self._recovery_min_distance = recovery_min_distance
-        self._recovery_stop_speed = recovery_stop_speed
+        self._recovery_distance = recovery_distance
+        self._recovery_speed = recovery_speed
+        self._hard_distance = hard_distance
         self._robot_body_id = model.body("robot").id
         self._robot_geom_ids = {model.geom("robot").id, model.geom("pointarrow").id}
         self._robot_qpos_ids = go_to_goal._get_qpos_ids(model, ["x", "y", "z"])
@@ -219,11 +221,11 @@ class GoToGoalCPU:
             cost += self._get_cost()
         self._lag_accelerometer(*previous)
         obs = self._get_obs()
-        terminated = bool(recovery.violates(obs, self._recovery_min_distance))
+        terminated = bool(recovery.violates(obs, self._hard_distance))
         info: dict[str, Any] = {
             "in_recovery_set": bool(
                 recovery.in_recovery_set(
-                    obs, self._recovery_min_distance, self._recovery_stop_speed
+                    obs, self._recovery_distance, self._recovery_speed
                 )
             ),
             "cost": cost,

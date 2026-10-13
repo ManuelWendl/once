@@ -1,4 +1,4 @@
-"""Go to goal recovery task: brake to a (near) full stop, clear of all obstacles.
+"""Go to goal recovery task: slow down and get clear of all obstacles.
 
 The predicates below operate on the go to goal observation
 `[obstacle_lidar (16), goal_lidar (16), ..., accelerometer (2), velocimeter (2),
@@ -18,12 +18,15 @@ _OBSTACLE_LIDAR = slice(0, lidar.NUM_LIDAR_BINS)
 _VELOCIMETER = slice(-5, -3)
 
 # Distances are measured between the centers of the robot and of an obstacle.
-# Hazards have a radius of 0.2 and count as violated when the center of the
-# robot is inside. The robot touches a vase from a distance of 0.3.
-RECOVERY_MIN_DISTANCE = 0.35
-# Below about 0.17 m/s the thrust actuator, a velocity servo, is not saturated
-# anymore: a zero command then stops the robot within a centimeter.
-RECOVERY_STOP_SPEED = 0.15
+# Hazards have a radius of 0.2 and have a cost when the center of the robot is
+# inside. The robot touches a vase from a distance of 0.3. At its top speed the
+# robot moves 0.12 per control step, which the hard constraint leaves room for.
+HARD_DISTANCE = 0.35
+# Safe operable region R: slow, with a buffer to the hard constraint. From
+# 0.5 m/s the robot brakes to a stop within 0.03 (and coasts for 0.25), such
+# that it can always stop inside of the buffer.
+RECOVERY_DISTANCE = 0.5
+RECOVERY_SPEED = 0.5
 # The nominal robot reaches 1.5 m/s and 3 rad/s.
 RESET_SPEED = 1.5
 RESET_ANGULAR_VELOCITY = 3.0
@@ -43,35 +46,39 @@ def speed(obs):
     return (obs[..., _VELOCIMETER] ** 2).sum(axis=-1) ** 0.5
 
 
-def violates(obs, min_distance: float = RECOVERY_MIN_DISTANCE):
-    """Whether the robot is closer to an obstacle than the minimum distance."""
-    return obstacle_distance(obs) < min_distance
+def violates(obs, hard_distance: float = HARD_DISTANCE):
+    """Whether the hard constraint on the distance to the obstacles is violated."""
+    return obstacle_distance(obs) < hard_distance
 
 
 def in_recovery_set(
     obs,
-    min_distance: float = RECOVERY_MIN_DISTANCE,
-    stop_speed: float = RECOVERY_STOP_SPEED,
+    recovery_distance: float = RECOVERY_DISTANCE,
+    recovery_speed: float = RECOVERY_SPEED,
 ):
-    """Whether the robot is (nearly) standing still, clear of all obstacles."""
-    return (speed(obs) <= stop_speed) & ~violates(obs, min_distance)
+    """Whether the robot is in the safe operable region R."""
+    return (obstacle_distance(obs) >= recovery_distance) & (
+        speed(obs) <= recovery_speed
+    )
 
 
 def recovery_reward_fn(
     next_obs,
-    min_distance: float = RECOVERY_MIN_DISTANCE,
-    stop_speed: float = RECOVERY_STOP_SPEED,
+    recovery_distance: float = RECOVERY_DISTANCE,
+    recovery_speed: float = RECOVERY_SPEED,
+    hard_distance: float = HARD_DISTANCE,
 ):
-    """1 if the robot stopped, 0 otherwise. Not to be mixed with the task reward."""
-    return in_recovery_set(next_obs, min_distance, stop_speed).astype("float32")
+    """1 if the robot entered R, 0 otherwise. Not to be mixed with the task reward."""
+    reached = in_recovery_set(next_obs, recovery_distance, recovery_speed)
+    reached = reached & ~violates(next_obs, hard_distance)
+    return reached.astype("float32")
 
 
 class GoToGoalRecovery(go_to_goal.GoToGoal):
-    """Go to goal that terminates when the robot stopped or got too close.
+    """Go to goal that terminates when reaching R or violating the hard constraint.
 
-    An episode starts with the robot in motion, anywhere it keeps the minimum
-    distance. The minimum distance has to be kept until the robot stopped: the
-    episode ends without a recovery reward as soon as it is violated.
+    An episode starts with the robot in motion, anywhere in the constraint set.
+    To recover, the robot has to slow down and to get away from the obstacles.
 
     `state.reward` remains the go to goal task reward. The recovery signal is
     written to `state.info["recovery_reward"]`.
@@ -80,25 +87,27 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
     def __init__(
         self,
         *,
-        recovery_min_distance: float = RECOVERY_MIN_DISTANCE,
-        recovery_stop_speed: float = RECOVERY_STOP_SPEED,
+        recovery_distance: float = RECOVERY_DISTANCE,
+        recovery_speed: float = RECOVERY_SPEED,
+        hard_distance: float = HARD_DISTANCE,
         reset_speed: float = RESET_SPEED,
         reset_angular_velocity: float = RESET_ANGULAR_VELOCITY,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self._recovery_min_distance = recovery_min_distance
-        self._recovery_stop_speed = recovery_stop_speed
+        self._recovery_distance = recovery_distance
+        self._recovery_speed = recovery_speed
+        self._hard_distance = hard_distance
         self._reset_speed = reset_speed
         self._reset_angular_velocity = reset_angular_velocity
-        # Start as close to the obstacles as the minimum distance allows.
+        # Start as close to the obstacles as the hard constraint allows.
         obstacle_keepouts = [
             self.spec[name].keepout
             for name in ("hazards", "vases")
             if self.spec[name].num_objects > 0
         ]
         if obstacle_keepouts:
-            keepout = max(recovery_min_distance - min(obstacle_keepouts), 0.0)
+            keepout = max(hard_distance - min(obstacle_keepouts), 0.0)
             self.spec["robot"] = go_to_goal.ObjectSpec(keepout, 1)
         self._robot_qvel_ids = mjx_env.get_qvel_ids(self._mj_model, ["x", "y", "z"])
 
@@ -138,9 +147,12 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
 
     def step(self, state: go_to_goal.State, action: jax.Array) -> go_to_goal.State:
         nstate = super().step(state, action)
-        violated = violates(nstate.obs, self._recovery_min_distance)
+        violated = violates(nstate.obs, self._hard_distance)
         recovery_reward = recovery_reward_fn(
-            nstate.obs, self._recovery_min_distance, self._recovery_stop_speed
+            nstate.obs,
+            self._recovery_distance,
+            self._recovery_speed,
+            self._hard_distance,
         )
         nstate.info["recovery_reward"] = recovery_reward
         nstate.metrics["recovery/reached"] = recovery_reward
