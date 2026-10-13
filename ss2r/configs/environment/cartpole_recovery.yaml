@@ -9,10 +9,10 @@ task_params:
   sim_dt: 0.01
   vision: false
   # Safe operable region R.
-  recovery_position_bound: 1.0
+  recovery_position_bound: 0.5
   recovery_velocity_bound: 0.5
   # Hard constraint on the cart position.
-  hard_position_bound: 1.5
+  hard_position_bound: 0.75
   reset_cart_velocity: 2.0
   reset_pole_velocity: 5.0
 
