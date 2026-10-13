@@ -16,8 +16,8 @@ min_replay_size: 1000
 max_replay_size: 1000000
 # Updates per learner step. Keep a learner step short, such that new policies
 # reach the actor quickly.
-model_grad_updates_per_step: 16
-critic_grad_updates_per_step: 16
+model_grad_updates_per_step: 20
+critic_grad_updates_per_step: 20
 num_critic_updates_per_actor_update: 1
 num_model_rollouts: 4096
 unroll_length: 1
