@@ -51,3 +51,6 @@ training:
   action_repeat: 4
   log_every: 2000
   store_checkpoint: true
+  # Store the state of the system and whether the recovery prior was active at
+  # every control step, to replay and render the run afterwards.
+  store_trajectory: false

@@ -98,6 +98,10 @@ class CartpoleSwingupCPU:
         mujoco.mj_forward(self.model, self.data)
         return self._get_obs()
 
+    def get_state(self) -> dict[str, np.ndarray]:
+        """The state of the simulation, as taken by `set_state`."""
+        return {"qpos": self.data.qpos.copy(), "qvel": self.data.qvel.copy()}
+
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, dict]:
         action = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
         reward = 0.0

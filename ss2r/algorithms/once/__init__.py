@@ -1,7 +1,7 @@
 from omegaconf import OmegaConf
 
 
-def get_train_fn(cfg, prior_cfg, checkpoint_path):
+def get_train_fn(cfg, prior_cfg, checkpoint_path, trajectory_path=None):
     import functools
 
     import ss2r.algorithms.once.train as once
@@ -17,4 +17,5 @@ def get_train_fn(cfg, prior_cfg, checkpoint_path):
         seed=cfg.training.seed,
         log_every=cfg.training.log_every,
         checkpoint_logdir=checkpoint_path,
+        trajectory_logdir=trajectory_path,
     )

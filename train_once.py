@@ -1,5 +1,6 @@
 import functools
 import logging
+import os
 
 import hydra
 import jax
@@ -75,6 +76,9 @@ def main(cfg):
             cfg,
             prior_cfg,
             checkpoint_path=get_state_path() if cfg.training.store_checkpoint else None,
+            trajectory_path=f"{os.getcwd()}/trajectory"
+            if cfg.training.store_trajectory
+            else None,
         )
         train_fn(
             prior_params=prior_params,

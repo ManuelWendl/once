@@ -173,6 +173,14 @@ class GoToGoalCPU:
         self._last_goal_distance = self._goal_distance()
         return self._get_obs()
 
+    def get_state(self) -> dict[str, np.ndarray]:
+        """The state of the simulation, as taken by `set_state`."""
+        return {
+            "qpos": self.data.qpos.copy(),
+            "qvel": self.data.qvel.copy(),
+            "mocap_pos": self.data.mocap_pos.copy(),
+        }
+
     def _lag_accelerometer(
         self, qvel: np.ndarray | None = None, qacc: np.ndarray | None = None
     ) -> None:

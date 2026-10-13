@@ -68,10 +68,18 @@ def _new_stats() -> dict[str, float]:
 class Actor:
     """Steps the environment and accumulates fixed-size chunks of transitions."""
 
-    def __init__(self, env: RealEnv, policy_step: Callable, chunk_size: int, seed: int):
+    def __init__(
+        self,
+        env: RealEnv,
+        policy_step: Callable,
+        chunk_size: int,
+        seed: int,
+        record_state: bool = False,
+    ):
         self.env = env
         self.policy_step = policy_step
         self.chunk_size = chunk_size
+        self.record_state = record_state
         self.key = jax.random.PRNGKey(seed)
         self.params: Any = None
         self.obs = env.reset()
@@ -81,7 +89,7 @@ class Actor:
 
     def _new_chunk(self) -> dict[str, np.ndarray]:
         n, obs_size = self.chunk_size, self.env.observation_size
-        return {
+        chunk = {
             "observation": np.zeros((n, obs_size), np.float32),
             "action": np.zeros((n, self.env.action_size), np.float32),
             "reward": np.zeros((n,), np.float32),
@@ -92,6 +100,13 @@ class Actor:
             "behavior_action": np.zeros((n, self.env.action_size), np.float32),
             "intervention": np.zeros((n,), np.float32),
         }
+        if self.record_state:
+            # The state of the system before every action and the value of the
+            # filter, to replay and render the run afterwards.
+            chunk["q_r"] = np.zeros((n,), np.float32)
+            for name, value in self.env.get_state().items():  # type: ignore
+                chunk[f"state_{name}"] = np.zeros((n, *value.shape), value.dtype)
+        return chunk
 
     def set_params(self, params: Any) -> None:
         self.params = params
@@ -108,8 +123,12 @@ class Actor:
         )
         action = np.asarray(action)
         intervention = float(intervention)
-        next_obs, reward, terminated, info = self.env.step(action)
         i = self.index
+        if self.record_state:
+            self.chunk["q_r"][i] = float(q_r)
+            for name, value in self.env.get_state().items():  # type: ignore
+                self.chunk[f"state_{name}"][i] = value
+        next_obs, reward, terminated, info = self.env.step(action)
         self.chunk["observation"][i] = self.obs
         self.chunk["action"][i] = action
         self.chunk["reward"][i] = reward
@@ -152,6 +171,7 @@ def run_actor(
     shared_params_name: str,
     transitions_queue,
     stop_event,
+    record_state: bool = False,
 ) -> None:
     """Entry point of the actor process. Never waits for the learner."""
     from ss2r.benchmark_suites import mujoco_cpu
@@ -164,7 +184,7 @@ def run_actor(
         mbpo_network, recovery_network, env.observation_size
     )
     shared_params = SharedParams(num_params, shared_params_name)
-    actor = Actor(env, policy_step, agent_cfg["chunk_size"], seed)
+    actor = Actor(env, policy_step, agent_cfg["chunk_size"], seed, record_state)
     params = None
     while params is None:
         params = shared_params.read()

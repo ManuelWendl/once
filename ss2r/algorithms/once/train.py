@@ -28,6 +28,7 @@ from ss2r.algorithms.once.filter import get_filter_params
 from ss2r.algorithms.once.learner import make_learner
 from ss2r.algorithms.once.networks import make_networks
 from ss2r.algorithms.once.shared_params import SharedParams
+from ss2r.algorithms.once.trajectory import TrajectoryWriter
 from ss2r.algorithms.sac.types import Metrics, Transition
 from ss2r.benchmark_suites import mujoco_cpu
 
@@ -52,10 +53,20 @@ def _to_transition(chunk: Mapping[str, np.ndarray]) -> Transition:
 class _SyncActor:
     """Runs the actor in the learner's process, for debugging and tests."""
 
-    def __init__(self, environment_cfg, agent_cfg, networks, action_repeat, seed):
+    def __init__(
+        self,
+        environment_cfg,
+        agent_cfg,
+        networks,
+        action_repeat,
+        seed,
+        record_state=False,
+    ):
         env = mujoco_cpu.make(environment_cfg, action_repeat, seed)
         policy_step, _ = make_policy_step(*networks, env.observation_size)
-        self._actor = Actor(env, policy_step, agent_cfg["chunk_size"], seed)
+        self._actor = Actor(
+            env, policy_step, agent_cfg["chunk_size"], seed, record_state
+        )
 
     def publish(self, params: Any) -> None:
         self._actor.set_params(flatten_params(params))
@@ -82,6 +93,7 @@ class _AsyncActor:
         action_repeat,
         seed,
         num_params,
+        record_state=False,
     ):
         ctx = multiprocessing.get_context("spawn")
         self._single_threaded = agent_cfg["actor_single_threaded"]
@@ -99,6 +111,7 @@ class _AsyncActor:
                 self._shared_params.name,
                 self._transitions_queue,
                 self._stop_event,
+                record_state,
             ),
             daemon=True,
         )
@@ -179,6 +192,7 @@ def train(
     log_every: int = 1000,
     progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
     checkpoint_logdir: Optional[str] = None,
+    trajectory_logdir: Optional[str] = None,
 ):
     """Trains online. `num_timesteps` and `log_every` are in environment steps."""
     c = agent_cfg
@@ -239,13 +253,31 @@ def train(
     )
     logging.info("Compiled the learner in %.1f seconds", time.time() - t)
 
+    trajectory_writer = None
+    if trajectory_logdir:
+        trajectory_writer = TrajectoryWriter(
+            trajectory_logdir,
+            {
+                "environment": environment_cfg,
+                "action_repeat": action_repeat,
+                "control_dt": control_dt,
+                "seed": seed,
+            },
+        )
+    record_state = trajectory_writer is not None
     actor: _AsyncActor | _SyncActor
     if c["asynchronous"]:
         _, num_params = make_policy_step(
             mbpo_network, recovery_network, observation_size
         )
         actor = _AsyncActor(
-            environment_cfg, agent_cfg, prior_agent_cfg, action_repeat, seed, num_params
+            environment_cfg,
+            agent_cfg,
+            prior_agent_cfg,
+            action_repeat,
+            seed,
+            num_params,
+            record_state,
         )
     else:
         actor = _SyncActor(
@@ -254,6 +286,7 @@ def train(
             (mbpo_network, recovery_network),
             action_repeat,
             seed,
+            record_state,
         )
 
     def get_params() -> Tuple[Any, ...]:
@@ -304,6 +337,8 @@ def train(
                 training_state, behavior_buffer_state = insert(
                     training_state, behavior_buffer_state, _to_transition(chunk)
                 )
+                if trajectory_writer:
+                    trajectory_writer.add(chunk)
                 control_steps += c["chunk_size"]
                 env_steps += c["chunk_size"] * action_repeat
                 violations += stats["violations"]
@@ -366,11 +401,15 @@ def train(
                 progress_fn(env_steps, metrics)
                 save(env_steps)
                 last_save = env_steps
+                if trajectory_writer:
+                    trajectory_writer.flush(env_steps)
                 window = {}
                 window_learner_steps = 0
                 window_start = time.time()
     finally:
         actor.close()
+        if trajectory_writer:
+            trajectory_writer.flush(env_steps)
     if last_save != env_steps:
         save(env_steps)
     logging.info("total steps: %s", env_steps)
