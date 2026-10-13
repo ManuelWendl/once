@@ -18,4 +18,4 @@ agent:
   intervention_task_reward: -0.2
   recovery_threshold: 0.9
   # Horizon of go_to_goal_recovery_prior.
-  recovery_horizon: 50
+  recovery_horizon: 25
