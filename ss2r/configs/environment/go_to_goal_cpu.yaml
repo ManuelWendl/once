@@ -1,0 +1,24 @@
+domain_name: mujoco_cpu
+
+task_name: GoToGoalCPU
+task_params:
+  # Level 1 layout, as in go_to_goal_recovery.
+  num_hazards: 8
+  num_vases: 1
+  goal_size: 0.3
+  # Safe operable region R: (near) full stop, clear of all obstacles.
+  recovery_stop_speed: 0.15
+  # Minimum distance to the center of any obstacle, to keep at all times.
+  recovery_min_distance: 0.35
+
+# Changes of the nominal model, playing the role of the sim-to-real gap.
+# Damping and mass are scaled, the gears are offset.
+real_params:
+  damping:
+    x: 1.
+    y: 1.
+    z: 1.
+  gear:
+    x: 0.
+    z: 0.
+  mass: 1.

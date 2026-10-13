@@ -1,0 +1,21 @@
+# @package _global_
+defaults:
+  - override /agent: once
+  - override /environment: go_to_goal_cpu
+  - _self_
+
+prior:
+  experiment: go_to_goal_recovery_prior
+
+training:
+  # An environment step takes 0.02 seconds: 500000 steps are about 2.8 hours.
+  num_timesteps: 500000
+  action_repeat: 4
+
+agent:
+  optimism: 1.
+  # The task reward is the progress towards the goal, at most 0.12 per step.
+  intervention_task_reward: -0.2
+  recovery_threshold: 0.9
+  # Horizon of go_to_goal_recovery_prior.
+  recovery_horizon: 50
