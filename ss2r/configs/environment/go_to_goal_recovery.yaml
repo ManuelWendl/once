@@ -1,0 +1,20 @@
+# Level 1 layout (8 hazards, 1 vase). For level 2, override
+# task_params.num_hazards=10 and task_params.num_vases=10.
+defaults:
+  - go_to_goal_easy
+
+task_name: go_to_goal_recovery
+task_params:
+  # Safe operable region R: (near) full stop, clear of all obstacles.
+  recovery_stop_speed: 0.05
+  # Minimum distance to the center of any obstacle, to keep at all times.
+  # Hazards have a radius of 0.2, the robot touches a vase from 0.3.
+  recovery_min_distance: 0.35
+  # The nominal robot reaches 1.5 m/s and 3 rad/s.
+  reset_speed: 1.5
+  reset_angular_velocity: 3.0
+
+# The horizon is a true terminal state (no bootstrapping).
+terminate_on_timeout: true
+# Sample a new initial state on every reset.
+resample_resets: true

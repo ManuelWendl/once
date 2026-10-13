@@ -18,3 +18,6 @@
 12. Change back to the root of the safe-learning repository: `cd .. && cd safe-learning`
 13. `poetry install --with madrona-mjx`
 14. Test `srun --ntasks=1 --cpus-per-task=20 --gpus=rtx_4090:1 --time=0:30:00 --mem-per-cpu=10240 python train_brax.py +experiment=cartpole_vision`
+
+15. 
+python train_once.py --multirun hydra/launcher=slurm +experiment=cartpole_once training.seed=0,1,2,3,4 hydra.launcher.timeout_min=120 'wandb.name=once9'
