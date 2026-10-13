@@ -410,7 +410,14 @@ def make_learner(
         `recovery_horizon` steps. If the behavior action was executed, the first
         step is the real transition. If the recovery prior took over instead,
         the outcome of the behavior action is predicted with the model.
+
+        With `recovery_restart_rollouts`, all rollouts start anew in every call:
+        the model is never unrolled for more than `recovery_unroll_length` steps.
         """
+        if c["recovery_restart_rollouts"]:
+            rollout_state = rollout_state.replace(  # type: ignore
+                step=jnp.zeros_like(rollout_state.step)
+            )
 
         def f(rollout_state, key):
             key_start, key_action, key_model = jax.random.split(key, 3)

@@ -48,6 +48,8 @@ recovery_discounting: 1.0
 recovery_q_learning_rate: 1e-4
 num_recovery_rollouts: 256
 recovery_unroll_length: 4
+# Start all recovery rollouts from real transitions in every learner step
+recovery_restart_rollouts: false
 recovery_batch_size: 256
 recovery_grad_updates_per_step: 10
 recovery_replay_size: 200000
