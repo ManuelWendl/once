@@ -16,15 +16,22 @@ WALL_GAP = 0.0005  # m: the ball touches a wall closer than this
 ROLLING_MASS = 7.0 / 5.0  # inertia of a rolling solid ball, in units of its mass
 
 
-def wall_normal(
+def wall_gaps(
     ball: jax.Array, segments: jax.Array, half_width: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
-    """Unit normal from the nearest wall towards the ball, and whether the ball touches it."""
+) -> Tuple[jax.Array, jax.Array, jax.Array]:
+    """Offset from each wall to the ball, its length, and the gap between ball and wall."""
     start, span = segments[:, :2], segments[:, 2:] - segments[:, :2]
     along = jp.sum((ball - start) * span, -1) / jp.maximum(jp.sum(span**2, -1), 1e-12)
     offset = ball - (start + jp.clip(along, 0.0, 1.0)[:, None] * span)
     dist = jp.linalg.norm(offset, axis=-1)
-    gap = dist - half_width - MARBLE_RADIUS
+    return offset, dist, dist - half_width - MARBLE_RADIUS
+
+
+def wall_normal(
+    ball: jax.Array, segments: jax.Array, half_width: jax.Array
+) -> Tuple[jax.Array, jax.Array]:
+    """Unit normal from the nearest wall towards the ball, and whether the ball touches it."""
+    offset, dist, gap = wall_gaps(ball, segments, half_width)
     i = jp.argmin(gap)
     return offset[i] / jp.maximum(dist[i], 1e-9), gap[i] < WALL_GAP
 

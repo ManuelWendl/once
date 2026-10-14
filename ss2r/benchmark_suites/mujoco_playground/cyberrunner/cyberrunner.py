@@ -123,17 +123,8 @@ class CyberRunner(mjx_env.MjxEnv):
     def reset(self, rng: jax.Array) -> mjx_env.State:
         rng, k_spawn, k_bias_ball, k_bias_joint, k_noise = jax.random.split(rng, 5)
         delay = self._draw_delay(jax.random.fold_in(k_spawn, 1))
-        if self._config.random_start:  # any waypoint but the goal
-            spawn = self._waypoints[
-                jax.random.randint(k_spawn, (), 0, self._waypoints.shape[0] - 1)
-            ]
-        else:
-            spawn = self._waypoints[0]
-        qpos = jp.asarray(self._mj_model.qpos0)
-        qpos = qpos.at[2:4].set(spawn)
-        qpos = qpos.at[4].set(BALL_START_HEIGHT)
-        qpos = qpos.at[5:9].set(jp.array([1.0, 0.0, 0.0, 0.0]))
-        data = self._make_data().replace(qpos=qpos)
+        qpos, qvel = self._initial_state(k_spawn)
+        data = self._make_data().replace(qpos=qpos, qvel=qvel)
         data = mjx.forward(self.mjx_model, data)
 
         bias_ball = jax.random.uniform(
@@ -248,6 +239,20 @@ class CyberRunner(mjx_env.MjxEnv):
                 obs, data, delay, info["prev_progress"], kick, stuck
             )
         return mjx_env.State(data, obs, reward, done, metrics, info)
+
+    def _initial_state(self, key: jax.Array) -> Tuple[jax.Array, jax.Array]:
+        """qpos and qvel at reset: board level and still, ball at rest on a waypoint."""
+        if self._config.random_start:  # any waypoint but the goal
+            spawn = self._waypoints[
+                jax.random.randint(key, (), 0, self._waypoints.shape[0] - 1)
+            ]
+        else:
+            spawn = self._waypoints[0]
+        qpos = jp.asarray(self._mj_model.qpos0)
+        qpos = qpos.at[2:4].set(spawn)
+        qpos = qpos.at[4].set(BALL_START_HEIGHT)
+        qpos = qpos.at[5:9].set(jp.array([1.0, 0.0, 0.0, 0.0]))
+        return qpos, jp.zeros(self._mj_model.nv)
 
     def _draw_delay(self, key: jax.Array) -> jax.Array:
         low, high = self._delay_substeps
