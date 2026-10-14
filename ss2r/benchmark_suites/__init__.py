@@ -21,6 +21,12 @@ from ss2r.benchmark_suites.mujoco_playground.cartpole import (
 from ss2r.benchmark_suites.mujoco_playground.cartpole.spidr_cartpole import (
     VisionSPiDRCartpole,
 )
+from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (  # noqa: F401
+    cyberrunner,
+)
+from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (
+    domain_randomization as cyberrunner_randomization,
+)
 from ss2r.benchmark_suites.mujoco_playground.g1_joystick import g1_joystick
 from ss2r.benchmark_suites.mujoco_playground.go1_joystick import go1_joystick
 from ss2r.benchmark_suites.mujoco_playground.go2_joystick import (
@@ -430,6 +436,10 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
     action_delay_max = _get_action_delay_max(task_cfg, cfg.training)
     task_params = config_dict.ConfigDict(task_cfg.task_params)
     task_params = _with_backend_defaults(task_cfg.task_name, task_params, registry)
+    if "num_envs_hint" in task_params:
+        task_params.num_envs_hint = cfg.training.num_envs
+    if "privileged_obs" in task_params:
+        task_params.privileged_obs = bool(cfg.training.value_privileged)
     vision = "use_vision" in cfg.agent and cfg.agent.use_vision
     if vision:
         _preinitialize_vision_env(task_cfg.task_name, task_params, registry)
@@ -468,7 +478,18 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
     )
     if vision:
         return train_env, train_env
-    eval_env = registry.load(task_cfg.task_name, config=task_params)
+    eval_task_params = config_dict.ConfigDict(task_cfg.task_params)
+    eval_task_params = _with_backend_defaults(
+        task_cfg.task_name, eval_task_params, registry
+    )
+    eval_task_params.update(dict(task_cfg.get("eval_task_params") or {}))
+    if "num_envs_hint" in eval_task_params:  # the evaluator batches all episodes
+        eval_task_params.num_envs_hint = (
+            cfg.training.num_eval_envs * cfg.training.num_eval_episodes
+        )
+    if "privileged_obs" in eval_task_params:
+        eval_task_params.privileged_obs = bool(cfg.training.value_privileged)
+    eval_env = registry.load(task_cfg.task_name, config=eval_task_params)
     eval_env = eval_wrap_env_fn(eval_env)
     if action_delay_max is not None:
         eval_env = ActionDelayWrapper(eval_env, action_delay_max)
@@ -590,6 +611,7 @@ randomization_fns = {
     "go_to_goal_recovery": go_to_goal.domain_randomization,
     "PandaPickCubeCartesian": franka_vision_randomize,
     "PandaPickCubeCartesianExtended": pick_cartesian.domain_randomize,
+    "CyberRunner": cyberrunner_randomization.domain_randomization,
 }
 
 render_fns = {
