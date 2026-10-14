@@ -241,16 +241,19 @@ def train(
         "behavior_action": np.zeros((c["chunk_size"], action_size), np.float32),
         "intervention": np.zeros((c["chunk_size"],), np.float32),
     }
-    insert(training_state, behavior_buffer_state, _to_transition(dummy_chunk))
-    jax.block_until_ready(
-        learner_step(
-            training_state,
-            behavior_buffer_state,
-            recovery_rollout_state,
-            recovery_buffer_state,
-            key,
+    # Two rounds, with inputs that are produced like in the training loop: from
+    # the initialization, and from earlier calls of insert and learner_step.
+    warmup = (training_state, recovery_rollout_state, recovery_buffer_state)
+    warmup_buffer_state = behavior_buffer_state
+    for _ in range(2):
+        warmup_training_state, warmup_buffer_state = insert(
+            warmup[0], warmup_buffer_state, _to_transition(dummy_chunk)
         )
-    )
+        warmup = learner_step(
+            warmup_training_state, warmup_buffer_state, warmup[1], warmup[2], key
+        )[:3]
+    jax.block_until_ready(warmup)
+    del warmup, warmup_training_state, warmup_buffer_state
     logging.info("Compiled the learner in %.1f seconds", time.time() - t)
 
     trajectory_writer = None
