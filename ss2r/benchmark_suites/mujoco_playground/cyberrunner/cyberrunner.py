@@ -15,13 +15,11 @@ from mujoco import mjx
 from mujoco_playground import dm_control_suite
 from mujoco_playground._src import mjx_env
 
-from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (
-    dc_motor,
-    layout,
-    model,
-    path,
-    progress,
-    stiction,
+from ss2r.benchmark_suites.mujoco_playground.cyberrunner.sim import (
+    builder,
+    constants,
+    dynamics,
+    maze,
 )
 
 BALL_POS_NOISE = 0.001  # 1 mm
@@ -36,14 +34,14 @@ NACON_PER_ENV = 8
 NJMAX = 32
 # Progress of the whole hard-maze path: its length in metres times 10.
 TOTAL_PROGRESS = 10.0 * float(
-    progress.compute_waypoint_distances(layout.hard_layout().waypoints)[1][-1]
+    maze.compute_waypoint_distances(maze.get_layout("hard").waypoints)[1][-1]
 )
 
 
 def default_config() -> config_dict.ConfigDict:
     return config_dict.create(
-        ctrl_dt=model.TIMESTEP * model.FRAME_SKIP,  # 60 Hz
-        sim_dt=model.TIMESTEP,  # 600 Hz
+        ctrl_dt=constants.TIMESTEP * constants.FRAME_SKIP,  # 60 Hz
+        sim_dt=constants.TIMESTEP,  # 600 Hz
         episode_length=2000,
         action_repeat=1,
         random_start=True,  # False: always start at the beginning, as on the robot
@@ -62,7 +60,9 @@ def default_config() -> config_dict.ConfigDict:
         kick_duration_s=[0.05, 0.2],
         privileged_obs=False,  # dict observation with a privileged_state for the critic
         ball_stiction=False,  # a still ball stays until the tilt exceeds a threshold
-        ctrl_limit=list(model.CTRL_LIMIT),  # alpha, beta command cap ([1, 1]: no cap)
+        ctrl_limit=list(
+            constants.CTRL_LIMIT
+        ),  # alpha, beta command cap ([1, 1]: no cap)
         motor_dc=False,  # voltage-limited motor current and breakaway joint friction, no cap
     )
 
@@ -76,11 +76,11 @@ class CyberRunner(mjx_env.MjxEnv):
         config_overrides: Optional[Dict[str, Union[str, int, list[Any]]]] = None,
     ):
         super().__init__(config, config_overrides)
-        maze = layout.get_layout(self._config.layout)
-        seg_lengths, cum_distances = progress.compute_waypoint_distances(maze.waypoints)
+        layout = maze.get_layout(self._config.layout)
+        seg_lengths, cum_distances = maze.compute_waypoint_distances(layout.waypoints)
         self.total_progress = 10.0 * float(cum_distances[-1])
-        self._mj_model = model.build_model(
-            maze,
+        self._mj_model = builder.build_model(
+            layout,
             ball_stiction=self._config.ball_stiction,
             ctrl_limit=(self._config.ctrl_limit[0], self._config.ctrl_limit[1]),
             motor_dc=self._config.motor_dc,
@@ -99,17 +99,17 @@ class CyberRunner(mjx_env.MjxEnv):
         self._dof_ids = jp.array(
             [self._mj_model.jnt_dofadr[j] for j in self._joint_ids]
         )
-        segments, half_widths = stiction.wall_segments(maze)
+        segments, half_widths = maze.wall_segments(layout)
         self._walls = (jp.asarray(segments), jp.asarray(half_widths))
 
-        self._waypoints = jp.asarray(maze.waypoints)
-        self._walls_h = jp.asarray(maze.walls_h)
-        self._walls_v = jp.asarray(maze.walls_v)
-        self._holes = jp.asarray(maze.holes)
+        self._waypoints = jp.asarray(layout.waypoints)
+        self._walls_h = jp.asarray(layout.walls_h)
+        self._walls_v = jp.asarray(layout.walls_v)
+        self._holes = jp.asarray(layout.holes)
         self._seg_lengths = jp.asarray(seg_lengths)
         self._cum_distances = jp.asarray(cum_distances)
         self._path_points = jp.asarray(
-            path.interpolate_path(maze.waypoints, self._config.path_distance)
+            maze.interpolate_path(layout.waypoints, self._config.path_distance)
         )
         substep_ms = 1000.0 * self.sim_dt
         low, high = (int(round(ms / substep_ms)) for ms in self._config.delay_ms)
@@ -211,7 +211,9 @@ class CyberRunner(mjx_env.MjxEnv):
             both_valid, (curr_progress - prev_progress) * PROGRESS_SCALE, 0.0
         )
         at_goal = jp.linalg.norm(ball - self._waypoints[-1]) < GOAL_THRESHOLD
-        in_hole = jp.any(jp.linalg.norm(self._holes - ball, axis=1) < model.HOLE_RADIUS)
+        in_hole = jp.any(
+            jp.linalg.norm(self._holes - ball, axis=1) < constants.HOLE_RADIUS
+        )
         reward = (
             progress_reward
             + jp.where(at_goal, GOAL_BONUS, 0.0)
@@ -344,8 +346,8 @@ class CyberRunner(mjx_env.MjxEnv):
         m, act, dof = self.mjx_model, self._actuator_ids, self._dof_ids
         prm = m.actuator_gainprm[act]
         speed = d.qvel[dof] * jp.sign(m.actuator_gear[act, 0])
-        low, high = dc_motor.current_bounds(speed, prm[:, 1], prm[:, 2])
-        assist = dc_motor.friction_assist(
+        low, high = dynamics.current_bounds(speed, prm[:, 1], prm[:, 2])
+        assist = dynamics.friction_assist(
             d.qvel[dof], m.dof_frictionloss[dof], prm[:, 3], prm[:, 4]
         )
         return d.replace(
@@ -373,7 +375,7 @@ class CyberRunner(mjx_env.MjxEnv):
             d.xpos[self._marble_body_id] - d.xanchor[alpha]
         )  # both axes pass through it
         velocity = board.T @ (d.qvel[2:5] - jp.cross(spin, lever))
-        friction, stuck = stiction.force(
+        friction, stuck = dynamics.stiction_force(
             self.ball_position(d),
             velocity[:2],
             board.T @ m.opt.gravity,
@@ -419,7 +421,7 @@ class CyberRunner(mjx_env.MjxEnv):
         return frame, ball_seen.astype(jp.float32)
 
     def _observation(self, history: jax.Array, ball_seen: jax.Array) -> jax.Array:
-        rel_path = path.relative_path(
+        rel_path = maze.relative_path(
             self._path_points,
             ball_seen,
             self._config.num_path_points,
@@ -428,7 +430,7 @@ class CyberRunner(mjx_env.MjxEnv):
         return jp.concatenate([history.reshape(-1), rel_path]).astype(jp.float32)
 
     def _path_progress(self, ball: jax.Array) -> Tuple[jax.Array, ...]:
-        return progress.compute_path_progress_jax(
+        return maze.compute_path_progress_jax(
             ball,
             self._waypoints,
             self._seg_lengths,

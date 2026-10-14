@@ -2,7 +2,7 @@
 
 import argparse
 
-from ss2r.benchmark_suites.mujoco_playground.cyberrunner import evaluation, export
+from ss2r.benchmark_suites.mujoco_playground.cyberrunner import evaluation
 
 
 def main():
@@ -13,7 +13,9 @@ def main():
     args = parser.parse_args()
 
     pick = {"best": evaluation.best_checkpoint, "last": evaluation.last_checkpoint}
-    ckpt = export.export(args.run_dir, args.out, pick[args.checkpoint](args.run_dir))
+    ckpt = evaluation.export(
+        args.run_dir, args.out, pick[args.checkpoint](args.run_dir)
+    )
     print(f"{args.out}: checkpoint {ckpt}")
 
 
