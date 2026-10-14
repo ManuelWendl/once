@@ -25,8 +25,8 @@ class SharedParams:
         else:
             self._shm = shared_memory.SharedMemory(name=name)
             self._owner = False
-        self._version = np.ndarray((1,), np.int64, buffer=self._shm.buf)
-        self._data = np.ndarray(
+        self._version: np.ndarray = np.ndarray((1,), np.int64, buffer=self._shm.buf)
+        self._data: np.ndarray = np.ndarray(
             (size,), np.float32, buffer=self._shm.buf, offset=_HEADER_BYTES
         )
         if self._owner:
