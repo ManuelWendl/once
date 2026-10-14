@@ -170,3 +170,6 @@ artifacts
 paper
 *.sbatch
 *.DS_Store
+
+trajectory*
+plotting/
