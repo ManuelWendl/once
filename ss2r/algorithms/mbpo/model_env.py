@@ -153,7 +153,7 @@ class ModelBasedEnv(envs.Env):
                 if self.safety_filter == "sooper":
                     next_obs["cumulative_cost"] = state.obs["cumulative_cost"] + cost
                 reset_state_obs = self.reset(reset_keys).obs
-                obs = jax.tree_map(
+                obs = jax.tree.map(
                     lambda x, y: jnp.where(done, x, y), reset_state_obs, next_obs
                 )
                 return state, obs
@@ -230,7 +230,7 @@ def _propagate_ensemble(
         next_obs_pred, reward_pred, cost_pred = vmap_pred_fn(
             normalizer_params, model_params, obs, action
         )
-        next_obs = jax.tree_map(lambda x: jnp.mean(x, axis=0), next_obs_pred)
+        next_obs = jax.tree.map(lambda x: jnp.mean(x, axis=0), next_obs_pred)
         reward = jnp.mean(reward_pred, axis=0)
         cost = jnp.mean(cost_pred, axis=0)
     elif ensemble_selection == "random":
@@ -240,7 +240,7 @@ def _propagate_ensemble(
         )
         # Randomly select one of the ensemble predictions
         idx = jax.random.randint(key, (1,), 0, reward_pred.shape[0])[0]
-        next_obs = jax.tree_map(lambda x: x[idx], next_obs_pred)
+        next_obs = jax.tree.map(lambda x: x[idx], next_obs_pred)
         reward = reward_pred[idx]
         cost = cost_pred[idx]
     else:

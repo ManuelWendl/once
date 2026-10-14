@@ -25,7 +25,7 @@ def domain_randomization(sys, rng, cfg):
         return gain, gear_sample
 
     actuator_gain, actuator_gear = randomize(rng)
-    in_axes = jax.tree_map(lambda x: None, sys)
+    in_axes = jax.tree.map(lambda x: None, sys)
     in_axes = in_axes.tree_replace(
         {
             "actuator.gain": 0,

@@ -72,7 +72,7 @@ def domain_randomization(sys, rng, cfg):
         )
 
     dof_damping, gear, mass, inertia, samples = randomize(rng)
-    in_axes = jax.tree_map(lambda x: None, sys)
+    in_axes = jax.tree.map(lambda x: None, sys)
     in_axes = in_axes.tree_replace(
         {
             "dof_damping": 0,

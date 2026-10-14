@@ -42,7 +42,7 @@ def domain_randomization(sys, rng, cfg):
         return sys, jax.flatten_util.ravel_pytree(sys)[0]
 
     cfg = OmegaConf.to_container(cfg)
-    in_axes = jax.tree_map(lambda _: 0, sys)
+    in_axes = jax.tree.map(lambda _: 0, sys)
     sys, params = randomize(rng)
     return sys, in_axes, params
 
@@ -415,7 +415,7 @@ def render(env, policy, steps, rng):
 
     state = env.reset(rng)
     _, trajectory = rollout(env, policy, steps, rng[0], state)
-    trajectory = jax.tree_map(lambda x: x[:, 0], trajectory.obs)
+    trajectory = jax.tree.map(lambda x: x[:, 0], trajectory.obs)
     if env.encode_angle:
         trajectory = decode_angles(trajectory, 2)
     images = [

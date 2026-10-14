@@ -25,11 +25,11 @@ def _dig(env):
 def render(env, policy, steps, rng, camera=None, num_envs=5):
     state = env.reset(rng)
     if num_envs is not None:
-        state = jax.tree_map(lambda x: x[:5], state)
+        state = jax.tree.map(lambda x: x[:5], state)
     orig_model = env._mjx_model
     if hasattr(env, "_randomized_models") and num_envs is not None:
         render_env = _dig(env)
-        model = jax.tree_map(
+        model = jax.tree.map(
             lambda x, ax: jnp.take(x, jnp.arange(num_envs), axis=ax)
             if ax is not None
             else x,
@@ -43,7 +43,7 @@ def render(env, policy, steps, rng, camera=None, num_envs=5):
     env._mjx_model = orig_model
     videos = []
     for i in range(5):
-        ep_trajectory = jax.tree_map(lambda x: x[:, i], trajectory)
+        ep_trajectory = jax.tree.map(lambda x: x[:, i], trajectory)
         ep_trajectory = pytrees_unstack(ep_trajectory)
         video = env.render(ep_trajectory, camera=camera)
         videos.append(video)

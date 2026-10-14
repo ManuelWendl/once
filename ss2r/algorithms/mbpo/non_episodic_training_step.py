@@ -124,10 +124,10 @@ def make_non_episodic_training_step(
         )
         should_update_actor = count % num_critic_updates_per_actor_update == 0
         update_if_needed = lambda x, y: jnp.where(should_update_actor, x, y)
-        policy_params = jax.tree_map(
+        policy_params = jax.tree.map(
             update_if_needed, new_policy_params, training_state.behavior_policy_params
         )
-        policy_optimizer_state = jax.tree_map(
+        policy_optimizer_state = jax.tree.map(
             update_if_needed,
             new_policy_optimizer_state,
             training_state.behavior_policy_optimizer_state,

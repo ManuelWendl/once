@@ -54,7 +54,7 @@ def domain_randomization(sys, rng, cfg):
         mass_sample,
         gear_sample,
     ) = randomize(rng)
-    in_axes = jax.tree_map(lambda x: None, sys)
+    in_axes = jax.tree.map(lambda x: None, sys)
     in_axes = in_axes.tree_replace(
         {
             "body_mass": 0,

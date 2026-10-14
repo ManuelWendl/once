@@ -54,7 +54,7 @@ def domain_randomization(sys, rng, cfg):
         )
 
     inertia_pos, mass, inertia, geom, friction, damping, gear, samples = randomize(rng)
-    in_axes = jax.tree_map(lambda x: None, sys)
+    in_axes = jax.tree.map(lambda x: None, sys)
     in_axes = in_axes.tree_replace(
         {
             "body_ipos": 0,

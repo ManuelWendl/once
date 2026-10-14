@@ -107,7 +107,7 @@ def domain_randomization(sys, rng, cfg):
         )
 
     friction_sample, mass, inertia, damping, gear, samples = randomize(rng)
-    in_axes = jax.tree_map(lambda x: None, sys)
+    in_axes = jax.tree.map(lambda x: None, sys)
     in_axes = in_axes.tree_replace(
         {
             "geom_friction": 0,
@@ -157,7 +157,7 @@ def _find_non_contacting_height(mjx_model, data, orientation, x_pos=0.0, y_pos=0
         body_fn,
         initial_state,
     )
-    ndata = jax.tree_map(
+    ndata = jax.tree.map(
         lambda x, y: jp.where(jp.less(num_attemps, 10000), x, y), ndata, data
     )
     return ndata
