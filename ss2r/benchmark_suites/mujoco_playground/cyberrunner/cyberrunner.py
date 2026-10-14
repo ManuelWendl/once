@@ -60,15 +60,18 @@ def default_config() -> config_dict.ConfigDict:
         kick_duration_s=[0.05, 0.2],
         privileged_obs=False,  # dict observation with a privileged_state for the critic
         ball_stiction=False,  # a still ball stays until the tilt exceeds a threshold
-        ctrl_limit=list(
-            constants.CTRL_LIMIT
-        ),  # alpha, beta command cap ([1, 1]: no cap)
+        # alpha, beta command cap ([1, 1]: no cap)
+        ctrl_limit=list(constants.CTRL_LIMIT),
         motor_dc=False,  # voltage-limited motor current and breakaway joint friction, no cap
     )
 
 
 class CyberRunner(mjx_env.MjxEnv):
     """Roll the marble along the maze path to the goal."""
+
+    # Drawn at reset and used by step() for the whole episode, so a resampled reset
+    # (ResampleAutoResetWrapper) must take them from the new initial state.
+    episode_info_keys = ("start_history", "start_progress", "bias_ball", "bias_joint")
 
     def __init__(
         self,

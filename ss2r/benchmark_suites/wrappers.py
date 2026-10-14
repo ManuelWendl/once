@@ -415,7 +415,11 @@ class HardAutoResetWrapper(Wrapper):
 
 
 class ResampleAutoResetWrapper(Wrapper):
-    """Automatically resets envs that are done to a newly sampled initial state."""
+    """Automatically resets envs that are done to a newly sampled initial state.
+
+    The info entries the env lists in `episode_info_keys` come from the new
+    initial state too.
+    """
 
     def reset(self, rng: jax.Array) -> State | MjxState:
         rng, sample_rng = jax.vmap(jax.random.split, out_axes=1)(rng)
@@ -451,6 +455,10 @@ class ResampleAutoResetWrapper(Wrapper):
             where_done, getattr(reset_state, data_name), getattr(state, data_name)
         )
         obs = jax.tree.map(where_done, reset_state.obs, state.obs)
+        for key in getattr(self.env.unwrapped, "episode_info_keys", ()):
+            state.info[key] = jax.tree.map(
+                where_done, reset_state.info[key], state.info[key]
+            )
         state.info["reset_rng"] = rng
         return state.replace(**{data_name: data, "obs": obs})
 
