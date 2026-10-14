@@ -586,12 +586,6 @@ randomization_fns = {
     "NonEpisodicHumanoidWalk": dm_humanoid.domain_randomization,
     "NonEpisodicHumanoidRun": dm_humanoid.domain_randomization,
     "SafeHumanoidWalk": dm_humanoid.domain_randomization,
-    "AlohaPegInsertionDistill": manipulation.get_domain_randomizer(
-        "AlohaPegInsertionDistill"
-    ),
-    "AlohaSinglePegInsertion": manipulation.get_domain_randomizer(
-        "AlohaSinglePegInsertion"
-    ),
     "go_to_goal": go_to_goal.domain_randomization,
     "go_to_goal_recovery": go_to_goal.domain_randomization,
     "PandaPickCubeCartesian": franka_vision_randomize,
@@ -653,8 +647,6 @@ render_fns = {
     "NonEpisodicHumanoidWalk": mujoco_playground.render,
     "NonEpisodicHumanoidRun": mujoco_playground.render,
     "SafeHumanoidWalk": mujoco_playground.render,
-    "AlohaSinglePegInsertion": mujoco_playground.render,
-    "AlohaPegInsertionDistill": mujoco_playground.render,
     "PandaPickCubeCartesian": functools.partial(
         mujoco_playground.render, num_envs=None, camera="front"
     ),
