@@ -361,7 +361,7 @@ class SPiDR(Wrapper):
             x = jp.asarray(x)
             return jp.tile(x, (self.num_perturbed_envs,) + (1,) * x.ndim)
 
-        return jax.tree_map(tile, tree)
+        return jax.tree.map(tile, tree)
 
 
 class BraxDomainRandomizationVmapWrapper(DomainRandomizationVmapBase):

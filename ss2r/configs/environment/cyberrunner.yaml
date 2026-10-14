@@ -1,0 +1,60 @@
+# CyberRunner labyrinth, state-only.
+defaults:
+  - mujoco_playground_base
+
+task_name: CyberRunner
+task_params:  # replaces default_config(), so all keys are needed
+  ctrl_dt: 0.0166666666  # 60 Hz
+  sim_dt: 0.00166666666  # 600 Hz
+  episode_length: 2000
+  action_repeat: 1
+  random_start: true
+  layout: hard  # maze: hard, medium or easy
+  impl: jax  # warp on the GPU (set by the experiments)
+  num_envs_hint: 1  # set by the factory to the batch size
+  delay_ms: [0.0, 0.0]  # command delay range, drawn once per episode
+  history_length: 5
+  num_path_points: 10
+  path_step: 50
+  path_distance: 0.0001
+  num_rays: 32
+  action_rate_penalty: 0.0  # reward cost per squared command change
+  kick_accel: 0.0  # largest random push on the ball, m/s^2 (0: no pushes)
+  kick_interval_s: [1.0, 3.0]
+  kick_duration_s: [0.05, 0.2]
+  privileged_obs: false  # set by the factory from training.value_privileged
+  ball_stiction: false  # a still ball stays until the tilt exceeds a threshold
+  ctrl_limit: [0.45, 0.55]  # alpha, beta command cap, the motors' PWM limit ([1, 1]: no cap)
+  motor_dc: false  # voltage-limited motor current and breakaway joint friction, no cap
+
+# Evaluation always starts at the beginning of the maze, as on the robot.
+eval_task_params:
+  random_start: false
+
+# Multipliers on the nominal values ([1, 1] switches a group off), except
+# gravity_tilt_deg and the ball stiction tilts (degrees), off at [0, 0].
+train_params:
+  motor_gain: [0.85, 1.15]
+  motor_time_constant: [0.85, 1.15]
+  motor_speed_limit: [0.85, 1.15]
+  joint_damping: [0.85, 1.15]
+  joint_friction: [0.85, 1.15]
+  ball_friction: [0.85, 1.15]
+  ball_mass: [0.85, 1.15]
+  ball_contact_damping: [0.85, 1.15]
+  gravity_tilt_deg: [-0.5, 0.5]
+  ball_static_deg: [0.0, 0.0]  # tilt that starts a still ball (ball_stiction)
+  ball_rolling_deg: [0.0, 0.0]  # resistance while it rolls, as a tilt (ball_stiction)
+
+eval_params:
+  motor_gain: [0.85, 1.15]
+  motor_time_constant: [0.85, 1.15]
+  motor_speed_limit: [0.85, 1.15]
+  joint_damping: [0.85, 1.15]
+  joint_friction: [0.85, 1.15]
+  ball_friction: [0.85, 1.15]
+  ball_mass: [0.85, 1.15]
+  ball_contact_damping: [0.85, 1.15]
+  gravity_tilt_deg: [-0.5, 0.5]
+  ball_static_deg: [0.0, 0.0]  # tilt that starts a still ball (ball_stiction)
+  ball_rolling_deg: [0.0, 0.0]  # resistance while it rolls, as a tilt (ball_stiction)

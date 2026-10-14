@@ -70,7 +70,7 @@ def domain_randomization(sys, rng, cfg):
         )
 
     friction_sample, gear_sample, samples = randomize(rng)
-    in_axes = jax.tree_map(lambda x: None, sys)
+    in_axes = jax.tree.map(lambda x: None, sys)
     in_axes = in_axes.tree_replace(
         {
             "geom_friction": 0,

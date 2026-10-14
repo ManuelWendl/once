@@ -58,4 +58,4 @@ class VisionSPiDRCartpole(Wrapper):
             x = jnp.asarray(x)
             return jnp.tile(x, (self.num_perturbed_envs,) + (1,) * x.ndim)
 
-        return jax.tree_map(tile, tree)
+        return jax.tree.map(tile, tree)

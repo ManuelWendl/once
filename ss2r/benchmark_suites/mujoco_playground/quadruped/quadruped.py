@@ -15,6 +15,8 @@ from mujoco_playground import MjxEnv, State, dm_control_suite
 from mujoco_playground._src import mjx_env, reward
 from mujoco_playground._src.dm_control_suite import common
 
+from ss2r.benchmark_suites.mujoco_playground import mjx_data
+
 _XML_PATH = epath.Path(__file__).parent / "quadruped.xml"
 
 WALK_SPEED = 0.5
@@ -107,7 +109,7 @@ def domain_randomization(sys, rng, cfg):
         )
 
     friction_sample, mass, inertia, damping, gear, samples = randomize(rng)
-    in_axes = jax.tree_map(lambda x: None, sys)
+    in_axes = jax.tree.map(lambda x: None, sys)
     in_axes = in_axes.tree_replace(
         {
             "geom_friction": 0,
@@ -157,7 +159,7 @@ def _find_non_contacting_height(mjx_model, data, orientation, x_pos=0.0, y_pos=0
         body_fn,
         initial_state,
     )
-    ndata = jax.tree_map(
+    ndata = jax.tree.map(
         lambda x, y: jp.where(jp.less(num_attemps, 10000), x, y), ndata, data
     )
     return ndata
@@ -194,7 +196,7 @@ class Quadruped(mjx_env.MjxEnv):
         self._torso_id = self._mj_model.body("torso").id
 
     def reset(self, rng: jax.Array) -> mjx_env.State:
-        data = mjx_env.init(self.mjx_model)
+        data = mjx_data.init(self.mjx_model)
         metrics = {"reward/upright": jp.zeros(()), "reward/move": jp.zeros(())}
         info = {"rng": rng}
         reward, done = jp.zeros(2)

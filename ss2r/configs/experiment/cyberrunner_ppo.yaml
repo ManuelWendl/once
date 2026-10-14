@@ -1,0 +1,40 @@
+# @package _global_
+# PPO on CyberRunner with domain randomization and a command delay of 0-33 ms
+# (PPO settings from Thomas's PPO).
+defaults:
+  - override /environment: cyberrunner
+  - override /agent: ppo
+  - override /agent/penalizer: null
+  - _self_
+
+environment:
+  task_params:
+    impl: warp
+    delay_ms: [0.0, 33.3]  # the robot's camera-to-motor latency is about 22 ms
+
+training:
+  safe: false
+  render: false
+  num_envs: 4096
+  num_eval_envs: 128
+  num_timesteps: 200000000
+  num_evals: 10
+  num_eval_episodes: 2
+  episode_length: 3000  # as on the robot
+  train_domain_randomization: true
+  eval_domain_randomization: true
+
+agent:
+  learning_rate: 0.0003
+  entropy_cost: 0.001
+  discounting: 0.99
+  unroll_length: 64
+  batch_size: 256
+  num_minibatches: 32
+  num_updates_per_batch: 4
+  normalize_observations: true
+  deterministic_eval: true
+  num_resets_per_eval: 1
+  policy_hidden_layer_sizes: [512, 256, 128]
+  value_hidden_layer_sizes: [512, 256, 128]
+  activation: swish

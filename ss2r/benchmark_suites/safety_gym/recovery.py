@@ -12,6 +12,7 @@ import jax
 import jax.numpy as jp
 from mujoco_playground._src import mjx_env
 
+from ss2r.benchmark_suites.mujoco_playground import mjx_data
 from ss2r.benchmark_suites.safety_gym import go_to_goal, lidar
 
 _OBSTACLE_LIDAR = slice(0, lidar.NUM_LIDAR_BINS)
@@ -132,7 +133,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
                 ]
             )
         )
-        data = mjx_env.init(
+        data = mjx_data.init(
             self.mjx_model,
             qpos=state.data.qpos,
             qvel=qvel,

@@ -21,6 +21,12 @@ from ss2r.benchmark_suites.mujoco_playground.cartpole import (
 from ss2r.benchmark_suites.mujoco_playground.cartpole.spidr_cartpole import (
     VisionSPiDRCartpole,
 )
+from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (  # noqa: F401
+    cyberrunner,
+)
+from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (
+    domain_randomization as cyberrunner_randomization,
+)
 from ss2r.benchmark_suites.mujoco_playground.g1_joystick import g1_joystick
 from ss2r.benchmark_suites.mujoco_playground.go1_joystick import go1_joystick
 from ss2r.benchmark_suites.mujoco_playground.go2_joystick import (
@@ -67,7 +73,7 @@ locomotion.register_environment(
 manipulation.register_environment(
     "PandaPickCubeCartesianExtended",
     pick_cartesian.PandaPickCubeCartesian,
-    pick_cartesian.default_config(),
+    pick_cartesian.default_config,
 )
 dm_control_suite.register_environment(
     "NonEpisodicHumanoidStand",
@@ -334,6 +340,18 @@ def make_brax_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
     return train_env, eval_env
 
 
+def _with_backend_defaults(task_name, task_params, registry):
+    """Fills impl, nconmax and njmax, read by playground 0.1 envs, from the env's defaults."""
+    try:
+        defaults = registry.get_default_config(task_name)
+    except ValueError:  # not a registered playground env: loading reports it
+        return task_params
+    for key in ("impl", "nconmax", "njmax"):
+        if key in defaults and key not in task_params:
+            task_params[key] = defaults[key]
+    return task_params
+
+
 def _preinitialize_vision_env(task_name, task_params, registry):
     # https://github.com/shacklettbp/madrona_mjx/issues/39
     new_params = copy.deepcopy(task_params)
@@ -351,6 +369,7 @@ def make_spidr_cartpole_vision(cfg, train_wrap_env_fn, eval_wrap_env_fn):
 
     task_cfg = get_task_config(cfg)
     task_params = config_dict.ConfigDict(task_cfg.task_params)
+    task_params = _with_backend_defaults(task_cfg.task_name, task_params, registry)
     _preinitialize_vision_env(task_cfg.task_name, task_params, registry)
     train_key, spidr_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed))
     spidr_train_randomization_fn = prepare_randomization_fn(
@@ -416,6 +435,11 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
     task_cfg = get_task_config(cfg)
     action_delay_max = _get_action_delay_max(task_cfg, cfg.training)
     task_params = config_dict.ConfigDict(task_cfg.task_params)
+    task_params = _with_backend_defaults(task_cfg.task_name, task_params, registry)
+    if "num_envs_hint" in task_params:
+        task_params.num_envs_hint = cfg.training.num_envs
+    if "privileged_obs" in task_params:
+        task_params.privileged_obs = bool(cfg.training.value_privileged)
     vision = "use_vision" in cfg.agent and cfg.agent.use_vision
     if vision:
         _preinitialize_vision_env(task_cfg.task_name, task_params, registry)
@@ -454,7 +478,18 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
     )
     if vision:
         return train_env, train_env
-    eval_env = registry.load(task_cfg.task_name, config=task_params)
+    eval_task_params = config_dict.ConfigDict(task_cfg.task_params)
+    eval_task_params = _with_backend_defaults(
+        task_cfg.task_name, eval_task_params, registry
+    )
+    eval_task_params.update(dict(task_cfg.get("eval_task_params") or {}))
+    if "num_envs_hint" in eval_task_params:  # the evaluator batches all episodes
+        eval_task_params.num_envs_hint = (
+            cfg.training.num_eval_envs * cfg.training.num_eval_episodes
+        )
+    if "privileged_obs" in eval_task_params:
+        eval_task_params.privileged_obs = bool(cfg.training.value_privileged)
+    eval_env = registry.load(task_cfg.task_name, config=eval_task_params)
     eval_env = eval_wrap_env_fn(eval_env)
     if action_delay_max is not None:
         eval_env = ActionDelayWrapper(eval_env, action_delay_max)
@@ -572,16 +607,11 @@ randomization_fns = {
     "NonEpisodicHumanoidWalk": dm_humanoid.domain_randomization,
     "NonEpisodicHumanoidRun": dm_humanoid.domain_randomization,
     "SafeHumanoidWalk": dm_humanoid.domain_randomization,
-    "AlohaPegInsertionDistill": manipulation.get_domain_randomizer(
-        "AlohaPegInsertionDistill"
-    ),
-    "AlohaSinglePegInsertion": manipulation.get_domain_randomizer(
-        "AlohaSinglePegInsertion"
-    ),
     "go_to_goal": go_to_goal.domain_randomization,
     "go_to_goal_recovery": go_to_goal.domain_randomization,
     "PandaPickCubeCartesian": franka_vision_randomize,
     "PandaPickCubeCartesianExtended": pick_cartesian.domain_randomize,
+    "CyberRunner": cyberrunner_randomization.domain_randomization,
 }
 
 render_fns = {
@@ -639,8 +669,6 @@ render_fns = {
     "NonEpisodicHumanoidWalk": mujoco_playground.render,
     "NonEpisodicHumanoidRun": mujoco_playground.render,
     "SafeHumanoidWalk": mujoco_playground.render,
-    "AlohaSinglePegInsertion": mujoco_playground.render,
-    "AlohaPegInsertionDistill": mujoco_playground.render,
     "PandaPickCubeCartesian": functools.partial(
         mujoco_playground.render, num_envs=None, camera="front"
     ),

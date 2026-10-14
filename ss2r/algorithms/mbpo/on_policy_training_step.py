@@ -370,7 +370,7 @@ def make_on_policy_training_step(
                     new_reward = jnp.where(
                         discount, new_reward, jnp.zeros_like(new_reward)
                     )
-        next_obs_pred = jax.tree_map(lambda x: x.mean(0), next_obs_pred)
+        next_obs_pred = jax.tree.map(lambda x: x.mean(0), next_obs_pred)
         return Transition(
             observation=transitions.observation,
             next_observation=next_obs_pred,

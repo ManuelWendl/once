@@ -22,8 +22,9 @@ import numpy as np
 from ml_collections import config_dict
 from mujoco import mjx
 from mujoco.mjx._src import math
-from mujoco_playground._src import collision, mjx_env
+from mujoco_playground._src import mjx_env
 
+from ss2r.benchmark_suites.mujoco_playground import collision, mjx_data
 from ss2r.benchmark_suites.mujoco_playground.go2_joystick import base as go2_base
 from ss2r.benchmark_suites.mujoco_playground.go2_joystick import go2_constants as consts
 
@@ -159,7 +160,7 @@ class Joystick(go2_base.Go2Env):
         rng, key = jax.random.split(rng)
         qvel = qvel.at[0:6].set(jax.random.uniform(key, (6,), minval=-0.5, maxval=0.5))
 
-        data = mjx_env.init(self.mjx_model, qpos=qpos, qvel=qvel, ctrl=qpos[7:])
+        data = mjx_data.init(self.mjx_model, qpos=qpos, qvel=qvel, ctrl=qpos[7:])
 
         rng, key1, key2, key3 = jax.random.split(rng, 4)
         time_until_next_pert = jax.random.uniform(

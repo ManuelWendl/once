@@ -1,0 +1,12 @@
+# @package _global_
+# Same as cyberrunner_ppo, trained without domain randomization or command delay.
+defaults:
+  - cyberrunner_ppo
+  - _self_
+
+environment:
+  task_params:
+    delay_ms: [0.0, 0.0]
+
+training:
+  train_domain_randomization: false

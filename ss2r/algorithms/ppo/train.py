@@ -155,7 +155,8 @@ def train(
     assert num_envs % device_count == 0
     env = environment
     env = TrackOnlineCosts(env)
-    reset_fn = jax.jit(jax.vmap(env.reset))
+    # pmap like brax's PPO, so per-call state (e.g. Warp contacts) gets a device axis
+    reset_fn = jax.pmap(env.reset, axis_name=_PMAP_AXIS_NAME)
     key_envs = jax.random.split(key_env, num_envs // process_count)
     key_envs = jnp.reshape(
         key_envs,
@@ -424,7 +425,9 @@ def train(
                         training_state.optimizer_state,
                     )
                 )
-                dummy_ckpt_config = config_dict.ConfigDict()
+                dummy_ckpt_config = config_dict.ConfigDict(
+                    {"network_factory_kwargs": {}}
+                )
                 checkpoint.save(
                     checkpoint_logdir,
                     current_step,

@@ -62,9 +62,9 @@ from ss2r.rl.utils import (
 
 
 def _random_translate_pixels(x, rng):
-    x = jax.tree_map(lambda x: x[:, None], x)
+    x = jax.tree.map(lambda x: x[:, None], x)
     y = batch_random_translate_pixels(x, rng)
-    return jax.tree_map(lambda y: y[:, 0], y)
+    return jax.tree.map(lambda y: y[:, 0], y)
 
 
 def update_lr_schedule_count(opt_state, new_count):
@@ -507,15 +507,15 @@ def train(
         )
         should_update_actor = count % num_critic_updates_per_actor_update == 0
         update_if_needed = lambda x, y: jnp.where(should_update_actor, x, y)
-        policy_params = jax.tree_map(
+        policy_params = jax.tree.map(
             update_if_needed, new_policy_params, training_state.policy_params
         )
-        policy_optimizer_state = jax.tree_map(
+        policy_optimizer_state = jax.tree.map(
             update_if_needed,
             new_policy_optimizer_state,
             training_state.policy_optimizer_state,
         )
-        polyak = lambda target, new: jax.tree_map(
+        polyak = lambda target, new: jax.tree.map(
             lambda x, y: x * (1 - tau) + y * tau, target, new
         )
         new_target_qr_params = polyak(training_state.target_qr_params, qr_params)
@@ -789,7 +789,7 @@ def train(
                     params += (buffer_state.online_state,)
                 else:
                     params += (buffer_state,)
-            dummy_ckpt_config = config_dict.ConfigDict()
+            dummy_ckpt_config = config_dict.ConfigDict({"network_factory_kwargs": {}})
             checkpoint.save(checkpoint_logdir, current_step, params, dummy_ckpt_config)
 
         # Run evals.

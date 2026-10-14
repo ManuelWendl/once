@@ -25,13 +25,16 @@ import numpy as np
 from etils import epath
 from ml_collections import config_dict
 from mujoco import mjx
-from mujoco_playground._src import collision, mjx_env
+from mujoco.mjx._src import math
+from mujoco_playground._src import mjx_env
 from mujoco_playground._src.manipulation.franka_emika_panda import (
     panda_kinematics,
     pick,
     pick_cartesian,
     randomize_vision,
 )
+
+from ss2r.benchmark_suites.mujoco_playground import collision, mjx_data
 
 
 def _rgba_to_grayscale(rgba: jax.Array) -> jax.Array:
@@ -62,7 +65,7 @@ def domain_randomize(
             "cam_quat": 0,
             "light_pos": 0,
             "light_dir": 0,
-            "light_directional": 0,
+            "light_type": 0,
             "light_castshadow": 0,
         }
     )
@@ -145,7 +148,7 @@ def domain_randomize(
         )
 
         # No need to randomize into specular lighting
-        light_directional = jp.ones((nlight,))
+        light_type = jp.ones((nlight,))
 
         return (
             geom_rgba,
@@ -153,7 +156,7 @@ def domain_randomize(
             cam_pos,
             cam_quat,
             light_dir,
-            light_directional,
+            light_type,
             light_castshadow,
         )
 
@@ -163,7 +166,7 @@ def domain_randomize(
         cam_pos,
         cam_quat,
         light_dir,
-        light_directional,
+        light_type,
         light_castshadow,
     ) = rand(jax.random.split(rng, num_worlds), light_positions)
 
@@ -175,7 +178,7 @@ def domain_randomize(
             "cam_quat": cam_quat,
             "light_pos": light_positions,
             "light_dir": light_dir,
-            "light_directional": light_directional,
+            "light_type": light_type,
             "light_castshadow": light_castshadow,
         }
     )
@@ -319,6 +322,49 @@ class PandaPickCubeCartesian(pick.PandaPickCube):
         )
         self._sample_orientation = False
 
+    def _get_reward(self, data: mjx.Data, info: Dict[str, Any]) -> Dict[str, Any]:
+        # As playground 0.0.4: floor contacts from geom distances, since this
+        # model has none of the contact sensors that playground 0.1 reads.
+        target_pos = info["target_pos"]
+        box_pos = data.xpos[self._obj_body]
+        gripper_pos = data.site_xpos[self._gripper_site]
+        pos_err = jp.linalg.norm(target_pos - box_pos)
+        box_mat = data.xmat[self._obj_body]
+        target_mat = math.quat_to_mat(data.mocap_quat[self._mocap_target])
+        rot_err = jp.linalg.norm(target_mat.ravel()[:6] - box_mat.ravel()[:6])
+
+        box_target = 1 - jp.tanh(5 * (0.9 * pos_err + 0.1 * rot_err))
+        gripper_box = 1 - jp.tanh(5 * jp.linalg.norm(box_pos - gripper_pos))
+        robot_target_qpos = 1 - jp.tanh(
+            jp.linalg.norm(
+                data.qpos[self._robot_arm_qposadr]
+                - self._init_q[self._robot_arm_qposadr]
+            )
+        )
+
+        hand_floor_collision = [
+            collision.geoms_colliding(data, self._floor_geom, g)
+            for g in [
+                self._left_finger_geom,
+                self._right_finger_geom,
+                self._hand_geom,
+            ]
+        ]
+        floor_collision = sum(hand_floor_collision) > 0
+        no_floor_collision = (1 - floor_collision).astype(float)
+
+        info["reached_box"] = 1.0 * jp.maximum(
+            info["reached_box"],
+            (jp.linalg.norm(box_pos - gripper_pos) < 0.012),
+        )
+
+        return {
+            "gripper_box": gripper_box,
+            "box_target": box_target * info["reached_box"],
+            "no_floor_collision": no_floor_collision,
+            "robot_target_qpos": robot_target_qpos,
+        }
+
     def modify_model(self, mj_model: mujoco.MjModel):
         # Expand floor size to non-zero so Madrona can render it
         mj_model.geom_size[mj_model.geom("floor").id, :2] = [5.0, 5.0]
@@ -365,7 +411,7 @@ class PandaPickCubeCartesian(pick.PandaPickCube):
             .at[self._obj_qposadr : self._obj_qposadr + 3]
             .set(box_pos)
         )
-        data = mjx_env.init(
+        data = mjx_data.init(
             self._mjx_model,
             init_q,
             jp.zeros(self._mjx_model.nv, dtype=float),

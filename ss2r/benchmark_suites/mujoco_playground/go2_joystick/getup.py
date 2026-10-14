@@ -23,6 +23,7 @@ from ml_collections import config_dict
 from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
+from ss2r.benchmark_suites.mujoco_playground import mjx_data
 from ss2r.benchmark_suites.mujoco_playground.go2_joystick import base as go2_base
 from ss2r.benchmark_suites.mujoco_playground.go2_joystick import go2_constants as consts
 
@@ -158,7 +159,7 @@ class Getup(go2_base.Go2Env):
         qvel = jp.zeros(self.mjx_model.nv)
         qvel = qvel.at[0:6].set(jax.random.uniform(key, (6,), minval=-0.5, maxval=0.5))
 
-        data = mjx_env.init(self.mjx_model, qpos=qpos, qvel=qvel, ctrl=qpos[7:])
+        data = mjx_data.init(self.mjx_model, qpos=qpos, qvel=qvel, ctrl=qpos[7:])
 
         # Let the robot settle for a few steps.
         data = mjx_env.step(self.mjx_model, data, qpos[7:], self._settle_steps)
