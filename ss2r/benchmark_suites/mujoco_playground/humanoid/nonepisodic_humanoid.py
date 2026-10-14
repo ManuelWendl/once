@@ -8,6 +8,8 @@ from mujoco import mjx
 from mujoco_playground._src import mjx_env
 from mujoco_playground._src.dm_control_suite import humanoid
 
+from ss2r.benchmark_suites.mujoco_playground import mjx_data
+
 
 def normalize_angle(angle, lower_bound=-jp.pi, upper_bound=jp.pi):
     """Normalize angle to be within [lower_bound, upper_bound)."""
@@ -97,7 +99,7 @@ class NonEpisodicHumanoid(humanoid.Humanoid):
         self.qpos_ids = jp.asarray(
             [self.mj_model.jnt_qposadr[id_] for id_ in joint_ids]
         )
-        self._init_q = mjx_env.init(self.mjx_model).qpos
+        self._init_q = mjx_data.init(self.mjx_model).qpos
 
     def _get_random_qpos(self, key: jax.Array) -> jax.Array:
         key1, key2 = jax.random.split(key, 2)
@@ -126,7 +128,7 @@ class NonEpisodicHumanoid(humanoid.Humanoid):
             qvel = qvel.at[0:6].set(
                 jax.random.uniform(key, (6,), minval=-0.5, maxval=0.5)
             )
-            data = mjx_env.init(self.mjx_model, qpos=qpos, qvel=qvel)
+            data = mjx_data.init(self.mjx_model, qpos=qpos, qvel=qvel)
             data = mjx_env.step(
                 self.mjx_model, data, jp.zeros(self.mjx_model.nu), self._settle_steps
             )
@@ -134,7 +136,7 @@ class NonEpisodicHumanoid(humanoid.Humanoid):
             return data
 
         def normal_init():
-            data = mjx_env.init(self.mjx_model)
+            data = mjx_data.init(self.mjx_model)
             return data
 
         data = jax.lax.cond(

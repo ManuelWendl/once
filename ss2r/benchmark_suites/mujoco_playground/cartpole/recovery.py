@@ -15,6 +15,8 @@ from mujoco_playground import dm_control_suite
 from mujoco_playground._src import mjx_env
 from mujoco_playground._src.dm_control_suite import cartpole
 
+from ss2r.benchmark_suites.mujoco_playground import mjx_data
+
 _CART_POSITION = 0
 _CART_VELOCITY = 3
 
@@ -117,7 +119,7 @@ class CartpoleRecovery(cartpole.Balance):
                 maxval=self._reset_pole_velocity,
             )
         )
-        data = mjx_env.init(self.mjx_model, qpos=qpos, qvel=qvel)
+        data = mjx_data.init(self.mjx_model, qpos=qpos, qvel=qvel)
         obs = self._get_obs(data, state.info)
         state.info["recovery_reward"] = jp.zeros(())
         state.metrics["recovery/reached"] = jp.zeros(())

@@ -67,7 +67,7 @@ locomotion.register_environment(
 manipulation.register_environment(
     "PandaPickCubeCartesianExtended",
     pick_cartesian.PandaPickCubeCartesian,
-    pick_cartesian.default_config(),
+    pick_cartesian.default_config,
 )
 dm_control_suite.register_environment(
     "NonEpisodicHumanoidStand",
@@ -334,6 +334,18 @@ def make_brax_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
     return train_env, eval_env
 
 
+def _with_backend_defaults(task_name, task_params, registry):
+    """Fills impl, nconmax and njmax, read by playground 0.1 envs, from the env's defaults."""
+    try:
+        defaults = registry.get_default_config(task_name)
+    except ValueError:  # not a registered playground env: loading reports it
+        return task_params
+    for key in ("impl", "nconmax", "njmax"):
+        if key in defaults and key not in task_params:
+            task_params[key] = defaults[key]
+    return task_params
+
+
 def _preinitialize_vision_env(task_name, task_params, registry):
     # https://github.com/shacklettbp/madrona_mjx/issues/39
     new_params = copy.deepcopy(task_params)
@@ -351,6 +363,7 @@ def make_spidr_cartpole_vision(cfg, train_wrap_env_fn, eval_wrap_env_fn):
 
     task_cfg = get_task_config(cfg)
     task_params = config_dict.ConfigDict(task_cfg.task_params)
+    task_params = _with_backend_defaults(task_cfg.task_name, task_params, registry)
     _preinitialize_vision_env(task_cfg.task_name, task_params, registry)
     train_key, spidr_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed))
     spidr_train_randomization_fn = prepare_randomization_fn(
@@ -416,6 +429,7 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
     task_cfg = get_task_config(cfg)
     action_delay_max = _get_action_delay_max(task_cfg, cfg.training)
     task_params = config_dict.ConfigDict(task_cfg.task_params)
+    task_params = _with_backend_defaults(task_cfg.task_name, task_params, registry)
     vision = "use_vision" in cfg.agent and cfg.agent.use_vision
     if vision:
         _preinitialize_vision_env(task_cfg.task_name, task_params, registry)

@@ -12,6 +12,7 @@ from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
 import ss2r.benchmark_suites.safety_gym.lidar as lidar
+from ss2r.benchmark_suites.mujoco_playground import mjx_data
 
 _XML_PATH = epath.Path(__file__).parent / "point.xml"
 
@@ -392,7 +393,7 @@ class GoToGoal(mjx_env.MjxEnv):
         qpos, mocap_pos = self._update_data(layout, rng_)
         mocap_quat = jp.zeros((self.mjx_model.nmocap, 4))
         mocap_quat = mocap_quat.at[:, 0].set(1.0)
-        data = mjx_env.init(
+        data = mjx_data.init(
             self.mjx_model, qpos=qpos, mocap_pos=mocap_pos, mocap_quat=mocap_quat
         )
         initial_goal_dist = jp.linalg.norm(self._robot_to_goal(data)[:2])
