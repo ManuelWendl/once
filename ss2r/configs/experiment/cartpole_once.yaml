@@ -4,6 +4,8 @@ defaults:
   - override /environment: cartpole_swingup_cpu
   - _self_
 
+# The recovery prior is trained with cartpole_recovery_prior. Its bounds are set
+# in environment/cartpole_recovery.yaml and have to match the ones below.
 prior:
   experiment: cartpole_recovery_prior
 
@@ -11,6 +13,23 @@ training:
   num_timesteps: 100000
   action_repeat: 4
 
+environment:
+  task_params:
+    recovery_position_bound: 0.33
+    recovery_velocity_bound: 0.5
+    hard_position_bound: 0.5
+
 agent:
-  optimism: 1.
+  # Exploration bonus on the task reward.
+  optimism: 0.5
+  model_propagation: nominal
+  num_critic_updates_per_actor_update: 2
+  min_replay_size: 1000
   recovery_threshold: 0.99
+  penalty_scale: 1.0
+  margin: 0.005
+  recovery_horizon: 25
+  recovery_restart_rollouts: true
+  recovery_q_learning_rate: 1e-4
+  recovery_grad_updates_per_step: 10
+  init_behavior_from_prior: false
