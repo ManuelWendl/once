@@ -789,7 +789,7 @@ def train(
                     params += (buffer_state.online_state,)
                 else:
                     params += (buffer_state,)
-            dummy_ckpt_config = config_dict.ConfigDict()
+            dummy_ckpt_config = config_dict.ConfigDict({"network_factory_kwargs": {}})
             checkpoint.save(checkpoint_logdir, current_step, params, dummy_ckpt_config)
 
         # Run evals.

@@ -306,7 +306,8 @@ def train(
     def save(step: int) -> None:
         if not checkpoint_logdir:
             return
-        checkpoint.save(checkpoint_logdir, step, get_params(), config_dict.ConfigDict())
+        dummy_ckpt_config = config_dict.ConfigDict({"network_factory_kwargs": {}})
+        checkpoint.save(checkpoint_logdir, step, get_params(), dummy_ckpt_config)
         # Only keep the latest checkpoint, such that the disk usage does not
         # grow with the number of logs.
         if last_save and last_save != step:
