@@ -3,7 +3,9 @@
 from typing import Optional
 
 import jax
+import jax.numpy as jp
 from mujoco import mjx
+from mujoco.mjx._src import sensor
 
 
 def init(
@@ -28,4 +30,14 @@ def init(
         data = data.replace(mocap_pos=mocap_pos.reshape(model.nmocap, -1))
     if mocap_quat is not None:
         data = data.replace(mocap_quat=mocap_quat.reshape(model.nmocap, -1))
-    return mjx.forward(model, data)
+    data = mjx.forward(model, data)
+    # On GPU, mjx 3.5 can return NaN accelerations for an initial state (the next
+    # steps recompute them): use the unconstrained ones, else zero, for its sensors.
+    failed = jp.isnan(data.qacc).any()
+    fallback = jp.where(
+        jp.isnan(data.qacc_smooth).any(), jp.zeros_like(data.qacc), data.qacc_smooth
+    )
+    data = data.replace(qacc=jp.where(failed, fallback, data.qacc))
+    return jax.lax.cond(
+        failed, lambda d: sensor.sensor_acc(model, d), lambda d: d, data
+    )
