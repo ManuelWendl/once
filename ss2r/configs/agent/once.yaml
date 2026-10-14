@@ -22,6 +22,9 @@ num_critic_updates_per_actor_update: 2
 num_model_rollouts: 4096
 unroll_length: 1
 policy_hidden_layer_sizes: [256, 256, 256]
+# Initialize the behavior policy and the observation normalizer with the ones of
+# the recovery prior. Requires the same policy network as the prior.
+init_behavior_from_prior: false
 value_hidden_layer_sizes: [512, 512]
 model_hidden_layer_sizes: [256, 256, 256]
 activation: swish

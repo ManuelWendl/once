@@ -179,6 +179,17 @@ def make_learner(
         normalizer_params = running_statistics.init_state(
             specs.Array((observation_size,), jnp.dtype("float32"))
         )
+        if c["init_behavior_from_prior"]:
+            _check_same_structure(
+                recovery_policy_params,
+                policy_params,
+                "behavior policy",
+                "Use the policy_hidden_layer_sizes and activation of the prior.",
+            )
+            # Also the observation normalizer, such that the behavior initially
+            # acts as the recovery prior.
+            policy_params = recovery_policy_params
+            normalizer_params = recovery_normalizer_params
         training_state = OnceTrainingState(  # type: ignore
             behavior_policy_params=policy_params,
             behavior_policy_optimizer_state=policy_optimizer.init(policy_params),
@@ -596,10 +607,16 @@ def make_learner(
     return init, insert, learner_step
 
 
-def _check_same_structure(params: Any, expected: Any, name: str) -> None:
+def _check_same_structure(
+    params: Any,
+    expected: Any,
+    name: str,
+    hint: str = "Make sure that the prior configuration is the one used for "
+    "training it.",
+) -> None:
     shapes = lambda tree: [jnp.shape(x) for x in jax.tree_util.tree_leaves(tree)]
     if shapes(params) != shapes(expected):
         raise ValueError(
             f"The parameters of the {name} do not match the networks of the prior. "
-            "Make sure that the prior configuration is the one used for training it."
+            + hint
         )
