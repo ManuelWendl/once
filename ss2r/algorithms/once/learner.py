@@ -190,6 +190,10 @@ def make_learner(
             # acts as the recovery prior.
             policy_params = recovery_policy_params
             normalizer_params = recovery_normalizer_params
+        if c["init_normalizer_from_prior"]:
+            # Statistics of the simulation, such that no observation starts with
+            # a vanishing standard deviation.
+            normalizer_params = recovery_normalizer_params
         training_state = OnceTrainingState(  # type: ignore
             behavior_policy_params=policy_params,
             behavior_policy_optimizer_state=policy_optimizer.init(policy_params),

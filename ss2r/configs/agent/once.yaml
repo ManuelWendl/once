@@ -25,6 +25,9 @@ policy_hidden_layer_sizes: [256, 256, 256]
 # Initialize the behavior policy and the observation normalizer with the ones of
 # the recovery prior. Requires the same policy network as the prior.
 init_behavior_from_prior: false
+# Initialize the observation normalizer of the behavior, task critic and model
+# with the one of the recovery prior, instead of an empty one.
+init_normalizer_from_prior: false
 value_hidden_layer_sizes: [512, 512]
 model_hidden_layer_sizes: [256, 256, 256]
 activation: swish

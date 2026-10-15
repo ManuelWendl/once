@@ -25,6 +25,7 @@ agent:
   min_replay_size: 5000
   critic_grad_updates_per_step: 4
   critic_learning_rate: 1e-4
-  agent.learning_rate: 1e-4
+  learning_rate: 1e-4
   alpha_learning_rate: 1e-4
   pessimistic_q: true
+  init_normalizer_from_prior: true
