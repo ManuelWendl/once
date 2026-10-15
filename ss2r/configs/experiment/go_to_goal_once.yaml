@@ -22,3 +22,9 @@ agent:
   # Horizon of go_to_goal_recovery_prior.
   recovery_horizon: 25
   recovery_restart_rollouts: true
+  min_replay_size: 5000
+  critic_grad_updates_per_step: 4
+  critic_learning_rate: 1e-4
+  agent.learning_rate: 1e-4
+  alpha_learning_rate: 1e-4
+  pessimistic_q: true
