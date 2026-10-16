@@ -21,7 +21,7 @@ agent:
   # Finite horizon, no discounting.
   discounting: 1.0
   propagation:
-    lambda_: 0.5
+    lambda_: 0.1
     alpha: 0.
     statistic: std
   reward_robustness:
