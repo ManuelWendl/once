@@ -1,11 +1,13 @@
-"""Walker recovery task: bring the torso back upright, without falling over.
+"""Walker recovery task: stand back up straight, without falling over.
 
 The predicates below operate on the walker observation
-`[orientations (14), upright (1), qvel (9)]`, where `upright` is the zz
-component of the torso orientation (the cosine of its tilt) and `qvel` starts
-with the velocities of `rootz`, `rootx` and `rooty` (the pitch rate). They only
-use operators, so that they can be shared between jax (simulation, learned
-model) and numpy (CPU environment) code.
+`[orientations (14), upright (1), qvel (9)]`. The orientations are the xx and xz
+components of the bodies torso, right thigh, right leg, right foot, left thigh,
+left leg and left foot, i.e. the cosine and sine of their absolute pitch.
+`upright` is the zz component of the torso orientation (the cosine of its tilt)
+and `qvel` starts with the velocities of `rootz`, `rootx` and `rooty` (the pitch
+rate). They only use operators, so that they can be shared between jax
+(simulation, learned model) and numpy (CPU environment) code.
 """
 
 from typing import Any, Dict, Optional, Union
@@ -22,12 +24,17 @@ from ss2r.benchmark_suites.mujoco_playground import mjx_data
 
 _UPRIGHT = 14
 _PITCH_RATE = 17
+# Cosine of the pitch of the thighs and the (lower) legs.
+_LEG_COSINES = (2, 4, 8, 10)
 
 # The walker falls over when its torso tilts by more than 60 degrees.
 HARD_UPRIGHT = 0.5
-# Safe operable region R: torso tilted by less than about 25 degrees, and only
-# slowly rotating.
+# Safe operable region R: standing up straight, with the torso, the thighs and
+# the legs tilted by less than about 25 degrees, and only slowly rotating. The
+# condition on the thighs and legs excludes crouching and sitting with an
+# upright torso.
 RECOVERY_UPRIGHT = 0.9
+RECOVERY_LEG_UPRIGHT = 0.9
 RECOVERY_PITCH_RATE = 1.0
 
 
@@ -40,11 +47,15 @@ def in_recovery_set(
     obs,
     recovery_upright: float = RECOVERY_UPRIGHT,
     recovery_pitch_rate: float = RECOVERY_PITCH_RATE,
+    recovery_leg_upright: float = RECOVERY_LEG_UPRIGHT,
 ):
     """Whether the walker is in the safe operable region R."""
-    return (obs[..., _UPRIGHT] >= recovery_upright) & (
+    inside = (obs[..., _UPRIGHT] >= recovery_upright) & (
         abs(obs[..., _PITCH_RATE]) <= recovery_pitch_rate
     )
+    for index in _LEG_COSINES:
+        inside = inside & (obs[..., index] >= recovery_leg_upright)
+    return inside
 
 
 def recovery_reward_fn(
@@ -52,9 +63,12 @@ def recovery_reward_fn(
     recovery_upright: float = RECOVERY_UPRIGHT,
     recovery_pitch_rate: float = RECOVERY_PITCH_RATE,
     hard_upright: float = HARD_UPRIGHT,
+    recovery_leg_upright: float = RECOVERY_LEG_UPRIGHT,
 ):
     """1 if the walker entered R, 0 otherwise. Not to be mixed with the task reward."""
-    reached = in_recovery_set(next_obs, recovery_upright, recovery_pitch_rate)
+    reached = in_recovery_set(
+        next_obs, recovery_upright, recovery_pitch_rate, recovery_leg_upright
+    )
     reached = reached & ~violates(next_obs, hard_upright)
     return reached.astype("float32")
 
@@ -64,6 +78,7 @@ def default_config() -> config_dict.ConfigDict:
     config.hard_upright = HARD_UPRIGHT
     config.recovery_upright = RECOVERY_UPRIGHT
     config.recovery_pitch_rate = RECOVERY_PITCH_RATE
+    config.recovery_leg_upright = RECOVERY_LEG_UPRIGHT
     # Initial states: share of the joint ranges around the standing pose, and
     # the largest initial velocities.
     config.reset_joint_range = 0.5
@@ -95,6 +110,7 @@ class WalkerRecovery(walker.PlanarWalker):
         self._hard_upright = get("hard_upright")
         self._recovery_upright = get("recovery_upright")
         self._recovery_pitch_rate = get("recovery_pitch_rate")
+        self._recovery_leg_upright = get("recovery_leg_upright")
         self._reset_joint_range = get("reset_joint_range")
         self._reset_pitch_rate = get("reset_pitch_rate")
         self._reset_forward_velocity = get("reset_forward_velocity")
@@ -166,6 +182,7 @@ class WalkerRecovery(walker.PlanarWalker):
             self._recovery_upright,
             self._recovery_pitch_rate,
             self._hard_upright,
+            self._recovery_leg_upright,
         )
         nstate.info["recovery_reward"] = recovery_reward
         nstate.metrics["recovery/reached"] = recovery_reward

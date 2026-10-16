@@ -64,6 +64,7 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
             recovery_upright=task_params["recovery_upright"],
             recovery_pitch_rate=task_params["recovery_pitch_rate"],
             hard_upright=task_params["hard_upright"],
+            recovery_leg_upright=task_params["recovery_leg_upright"],
         )
         violates_fn = functools.partial(
             walker_recovery.violates,

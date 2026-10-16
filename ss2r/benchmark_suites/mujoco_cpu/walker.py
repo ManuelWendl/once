@@ -39,6 +39,7 @@ class WalkerWalkCPU:
         hard_upright: float = recovery.HARD_UPRIGHT,
         recovery_upright: float = recovery.RECOVERY_UPRIGHT,
         recovery_pitch_rate: float = recovery.RECOVERY_PITCH_RATE,
+        recovery_leg_upright: float = recovery.RECOVERY_LEG_UPRIGHT,
         reset_noise: float = 0.01,
         action_repeat: int = 1,
         real_params: Mapping[str, float] | None = None,
@@ -55,6 +56,7 @@ class WalkerWalkCPU:
         self._hard_upright = hard_upright
         self._recovery_upright = recovery_upright
         self._recovery_pitch_rate = recovery_pitch_rate
+        self._recovery_leg_upright = recovery_leg_upright
         self._reset_noise = reset_noise
         self._rng = np.random.default_rng(seed)
         self.observation_size = 2 * (self.model.nbody - 1) + 1 + self.model.nv
@@ -100,7 +102,10 @@ class WalkerWalkCPU:
         info: dict[str, Any] = {
             "in_recovery_set": bool(
                 recovery.in_recovery_set(
-                    obs, self._recovery_upright, self._recovery_pitch_rate
+                    obs,
+                    self._recovery_upright,
+                    self._recovery_pitch_rate,
+                    self._recovery_leg_upright,
                 )
             ),
         }

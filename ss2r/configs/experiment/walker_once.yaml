@@ -17,6 +17,7 @@ training:
 environment:
   task_params:
     recovery_upright: 0.9
+    recovery_leg_upright: 0.9
     recovery_pitch_rate: 1.0
     hard_upright: 0.5
 

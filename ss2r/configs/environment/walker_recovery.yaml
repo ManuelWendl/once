@@ -8,9 +8,10 @@ task_params:
   episode_length: 1000
   sim_dt: 0.0025
   vision: false
-  # Safe operable region R: torso tilted by less than about 25 degrees, slowly
-  # rotating.
+  # Safe operable region R: standing up straight, with the torso, the thighs
+  # and the legs tilted by less than about 25 degrees, slowly rotating.
   recovery_upright: 0.9
+  recovery_leg_upright: 0.9
   recovery_pitch_rate: 1.0
   # Hard constraint: the walker falls over when its torso tilts by more than 60
   # degrees.
