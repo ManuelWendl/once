@@ -1,0 +1,7 @@
+defaults:
+  - cartpole_swingup_cpu
+
+task_name: CartpoleSwingupCPU
+task_params:
+  # 1 with the pole upright and the cart within 0.25 of the center, else 0.
+  sparse: true

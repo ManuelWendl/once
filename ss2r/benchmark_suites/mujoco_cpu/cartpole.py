@@ -9,6 +9,9 @@ from mujoco_playground._src.dm_control_suite import cartpole, common
 from ss2r.benchmark_suites.mujoco_playground.cartpole import recovery
 
 _POLE_ID = -1
+# Bounds of the sparse reward, as in playground's CartpoleSwingupSparse.
+_SPARSE_CART_RANGE = 0.25
+_SPARSE_ANGLE_COSINE = 0.995
 
 
 class RealEnv(Protocol):
@@ -45,6 +48,7 @@ class CartpoleSwingupCPU:
         hard_position_bound: float = recovery.HARD_POSITION_BOUND,
         recovery_position_bound: float = recovery.RECOVERY_POSITION_BOUND,
         recovery_velocity_bound: float = recovery.RECOVERY_VELOCITY_BOUND,
+        sparse: bool = False,
         real_params: Mapping[str, float] | None = None,
         seed: int = 0,
     ):
@@ -61,6 +65,7 @@ class CartpoleSwingupCPU:
         self._hard_position_bound = hard_position_bound
         self._recovery_position_bound = recovery_position_bound
         self._recovery_velocity_bound = recovery_velocity_bound
+        self._sparse = sparse
         self._rng = np.random.default_rng(seed)
         self.observation_size = 5
         self.action_size = self.model.nu
@@ -134,6 +139,13 @@ class CartpoleSwingupCPU:
 
     def _task_reward(self, action: np.ndarray) -> float:
         xmat = self.data.xmat.reshape(-1, 3, 3)
+        if self._sparse:
+            # 1 with the pole upright and the cart centered, 0 otherwise.
+            cart_in_bounds = abs(self.data.qpos[self._slider_qposadr]) <= (
+                _SPARSE_CART_RANGE
+            )
+            angle_in_bounds = xmat[2, 2, 2] >= _SPARSE_ANGLE_COSINE
+            return float(cart_in_bounds and angle_in_bounds)
         upright = (xmat[2, 2, 2] + 1) / 2
         cart_position = self.data.qpos[self._slider_qposadr]
         centered = (1 + _gaussian_tolerance(cart_position, 2.0)) / 2
