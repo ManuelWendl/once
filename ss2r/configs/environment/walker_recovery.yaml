@@ -18,10 +18,11 @@ task_params:
   hard_upright: 0.5
   # Initial states: share of the joint ranges around the standing pose, and the
   # largest initial velocities.
-  reset_joint_range: 0.5
-  reset_pitch_rate: 2.0
-  reset_forward_velocity: 1.0
-  reset_joint_velocity: 2.0
+  reset_joint_range: 0.8
+  reset_pitch_rate: 3.0
+  reset_forward_velocity: 2.0
+  reset_vertical_velocity: 0.5
+  reset_joint_velocity: 5.0
 
 # The horizon is a true terminal state (no bootstrapping).
 terminate_on_timeout: true

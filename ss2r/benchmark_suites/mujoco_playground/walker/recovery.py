@@ -81,10 +81,11 @@ def default_config() -> config_dict.ConfigDict:
     config.recovery_leg_upright = RECOVERY_LEG_UPRIGHT
     # Initial states: share of the joint ranges around the standing pose, and
     # the largest initial velocities.
-    config.reset_joint_range = 0.5
-    config.reset_pitch_rate = 2.0
-    config.reset_forward_velocity = 1.0
-    config.reset_joint_velocity = 2.0
+    config.reset_joint_range = 0.8
+    config.reset_pitch_rate = 3.0
+    config.reset_forward_velocity = 2.0
+    config.reset_vertical_velocity = 0.5
+    config.reset_joint_velocity = 5.0
     return config
 
 
@@ -114,6 +115,7 @@ class WalkerRecovery(walker.PlanarWalker):
         self._reset_joint_range = get("reset_joint_range")
         self._reset_pitch_rate = get("reset_pitch_rate")
         self._reset_forward_velocity = get("reset_forward_velocity")
+        self._reset_vertical_velocity = get("reset_vertical_velocity")
         self._reset_joint_velocity = get("reset_joint_velocity")
         # All geoms except the floor are capsules: (radius, half length).
         self._body_geoms = jp.arange(1, self.mj_model.ngeom)
@@ -129,7 +131,7 @@ class WalkerRecovery(walker.PlanarWalker):
     def reset(self, rng: jax.Array) -> mjx_env.State:
         """Samples a perturbed standing state, anywhere it did not fall over."""
         state = super().reset(rng)
-        rng1, rng2, rng3, rng4, rng5 = jax.random.split(rng, 5)
+        rng1, rng2, rng3, rng4, rng5, rng6 = jax.random.split(rng, 6)
         nq, nv = self.mjx_model.nq, self.mjx_model.nv
         max_pitch = jp.arccos(self._hard_upright)
         qpos = jp.zeros(nq)
@@ -143,6 +145,14 @@ class WalkerRecovery(walker.PlanarWalker):
             jax.random.uniform(rng2, (nq - 3,), minval=lowers, maxval=uppers)
         )
         qvel = jp.zeros(nv)
+        qvel = qvel.at[0].set(
+            jax.random.uniform(
+                rng6,
+                (),
+                minval=-self._reset_vertical_velocity,
+                maxval=self._reset_vertical_velocity,
+            )
+        )
         qvel = qvel.at[1].set(
             jax.random.uniform(
                 rng3,
