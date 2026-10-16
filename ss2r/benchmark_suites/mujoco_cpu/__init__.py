@@ -3,14 +3,19 @@ from typing import Any, Callable, Mapping
 
 from ss2r.benchmark_suites.mujoco_cpu.cartpole import CartpoleSwingupCPU, RealEnv
 from ss2r.benchmark_suites.mujoco_cpu.go_to_goal import GoToGoalCPU
+from ss2r.benchmark_suites.mujoco_cpu.walker import WalkerWalkCPU
 from ss2r.benchmark_suites.mujoco_playground.cartpole import (
     recovery as cartpole_recovery,
+)
+from ss2r.benchmark_suites.mujoco_playground.walker import (
+    recovery as walker_recovery,
 )
 from ss2r.benchmark_suites.safety_gym import recovery as go_to_goal_recovery
 
 _envs = {
     "CartpoleSwingupCPU": CartpoleSwingupCPU,
     "GoToGoalCPU": GoToGoalCPU,
+    "WalkerWalkCPU": WalkerWalkCPU,
 }
 
 
@@ -52,6 +57,17 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
         violates_fn = functools.partial(
             go_to_goal_recovery.violates,
             hard_distance=task_params["hard_distance"],
+        )
+    elif task_name == "WalkerWalkCPU":
+        recovery_reward_fn = functools.partial(
+            walker_recovery.recovery_reward_fn,
+            recovery_upright=task_params["recovery_upright"],
+            recovery_pitch_rate=task_params["recovery_pitch_rate"],
+            hard_upright=task_params["hard_upright"],
+        )
+        violates_fn = functools.partial(
+            walker_recovery.violates,
+            hard_upright=task_params["hard_upright"],
         )
     else:
         raise ValueError(f"Unknown CPU environment {task_name}")

@@ -41,6 +41,9 @@ from ss2r.benchmark_suites.mujoco_playground.humanoid import (
 from ss2r.benchmark_suites.mujoco_playground.pick_cartesian import pick_cartesian
 from ss2r.benchmark_suites.mujoco_playground.quadruped import quadruped
 from ss2r.benchmark_suites.mujoco_playground.walker import walker
+from ss2r.benchmark_suites.mujoco_playground.walker import (  # noqa: F401
+    recovery as walker_recovery,
+)
 from ss2r.benchmark_suites.rccar import rccar
 from ss2r.benchmark_suites.safety_gym import go_to_goal
 from ss2r.benchmark_suites.utils import get_domain_name, get_task_config
@@ -592,6 +595,7 @@ randomization_fns = {
     "WalkerRun": walker.domain_randomization,
     "SafeWalkerWalk": walker.domain_randomization,
     "SafeWalkerRun": walker.domain_randomization,
+    "WalkerRecovery": walker.domain_randomization,
     "SafeCartpoleSwingup": dm_cartpole.domain_randomization,
     "SafeCartpoleSwingupSparse": dm_cartpole.domain_randomization,
     "SafeCartpoleBalanceSparse": dm_cartpole.domain_randomization,
@@ -663,6 +667,7 @@ render_fns = {
     "WalkerRun": functools.partial(mujoco_playground.render, camera="side"),
     "SafeWalkerWalk": functools.partial(mujoco_playground.render, camera="side"),
     "SafeWalkerRun": functools.partial(mujoco_playground.render, camera="side"),
+    "WalkerRecovery": functools.partial(mujoco_playground.render, camera="side"),
     "HumanoidWalk": mujoco_playground.render,
     "HumanoidStand": mujoco_playground.render,
     "NonEpisodicHumanoidStand": mujoco_playground.render,
