@@ -9,3 +9,10 @@ defaults:
 agent:
   # Exploration bonus on the task reward, needed to find the sparse reward.
   optimism: 0.5
+  # Reward of a transition in which the recovery prior takes over, in the
+  # model rollouts. With the action cost, the rewards before finding the sparse
+  # reward are negative. Without a clear penalty, ending a rollout by an
+  # intervention (reward 0) is then better than continuing, and the behavior
+  # policy learns to provoke interventions. -10 is worse than doing nothing
+  # (reward 0) and than about 8 control steps at the full action cost.
+  intervention_task_reward: -10.
