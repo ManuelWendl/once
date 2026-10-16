@@ -1,0 +1,18 @@
+domain_name: mujoco_cpu
+
+task_name: WalkerWalkCPU
+task_params:
+  ctrl_dt: 0.025
+  sim_dt: 0.0025
+  # Safe operable region R.
+  recovery_upright: 0.9
+  recovery_pitch_rate: 1.0
+  # Hard constraint on the uprightness of the torso.
+  hard_upright: 0.5
+
+# Offsets to the nominal model, playing the role of the sim-to-real gap.
+real_params:
+  torso_length: 0.
+  friction: 0.
+  joint_damping: 0.
+  gear: 10.

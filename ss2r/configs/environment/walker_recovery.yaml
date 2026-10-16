@@ -1,0 +1,41 @@
+defaults:
+  - mujoco_playground_base
+
+task_name: WalkerRecovery
+task_params:
+  action_repeat: 1
+  ctrl_dt: 0.025
+  episode_length: 1000
+  sim_dt: 0.0025
+  vision: false
+  # Safe operable region R: torso tilted by less than about 25 degrees, slowly
+  # rotating.
+  recovery_upright: 0.9
+  recovery_pitch_rate: 1.0
+  # Hard constraint: the walker falls over when its torso tilts by more than 60
+  # degrees.
+  hard_upright: 0.5
+  # Initial states: share of the joint ranges around the standing pose, and the
+  # largest initial velocities.
+  reset_joint_range: 0.5
+  reset_pitch_rate: 2.0
+  reset_forward_velocity: 1.0
+  reset_joint_velocity: 2.0
+
+# The horizon is a true terminal state (no bootstrapping).
+terminate_on_timeout: true
+# Sample a new initial state on every reset.
+resample_resets: true
+
+# Sample uniformly around the nominal value, as in walker.yaml.
+train_params:
+  torso_length: [0.0, 0.0]
+  friction: [0.0, 0.0]
+  joint_damping: [0.0, 0.0]
+  gear: [0., 20.]
+
+eval_params:
+  torso_length: [0.0, 0.0]
+  friction: [0.0, 0.0]
+  joint_damping: [0.0, 0.0]
+  gear: [0., 20.]

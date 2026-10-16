@@ -1,0 +1,33 @@
+# @package _global_
+defaults:
+  - override /agent: once
+  - override /environment: walker_walk_cpu
+  - _self_
+
+# The recovery prior is trained with walker_recovery_prior. Its bounds are set
+# in environment/walker_recovery.yaml and have to match the ones below.
+prior:
+  experiment: walker_recovery_prior
+
+training:
+  # An environment step takes 0.025 seconds: 200000 steps are about 1.4 hours.
+  num_timesteps: 200000
+  action_repeat: 1
+
+environment:
+  task_params:
+    recovery_upright: 0.9
+    recovery_pitch_rate: 1.0
+    hard_upright: 0.5
+
+agent:
+  # Exploration bonus on the task reward.
+  optimism: 0.05
+  num_critic_updates_per_actor_update: 1
+  min_replay_size: 5000
+  recovery_threshold: 0.9
+  # Horizon of walker_recovery_prior.
+  recovery_horizon: 40
+  recovery_restart_rollouts: true
+  pessimistic_q: true
+  init_normalizer_from_prior: true
