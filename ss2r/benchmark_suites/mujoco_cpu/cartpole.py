@@ -49,6 +49,7 @@ class CartpoleSwingupCPU:
         recovery_position_bound: float = recovery.RECOVERY_POSITION_BOUND,
         recovery_velocity_bound: float = recovery.RECOVERY_VELOCITY_BOUND,
         sparse: bool = False,
+        action_cost_scale: float = 0.0,
         real_params: Mapping[str, float] | None = None,
         seed: int = 0,
     ):
@@ -66,6 +67,7 @@ class CartpoleSwingupCPU:
         self._recovery_position_bound = recovery_position_bound
         self._recovery_velocity_bound = recovery_velocity_bound
         self._sparse = sparse
+        self._action_cost_scale = action_cost_scale
         self._rng = np.random.default_rng(seed)
         self.observation_size = 5
         self.action_size = self.model.nu
@@ -145,7 +147,16 @@ class CartpoleSwingupCPU:
                 _SPARSE_CART_RANGE
             )
             angle_in_bounds = xmat[2, 2, 2] >= _SPARSE_ANGLE_COSINE
-            return float(cart_in_bounds and angle_in_bounds)
+            reward = float(cart_in_bounds and angle_in_bounds)
+            if self._action_cost_scale:
+                # The action cost of the SOOPER experiments (ActionCostWrapper of
+                # HardCartpoleSwingupSparse): free within +-0.1, then rising to
+                # the full scale.
+                outside = max(abs(action[0]) - 0.1, 0.0)
+                reward -= self._action_cost_scale * (
+                    1.0 - _gaussian_tolerance(outside, 0.1)
+                )
+            return reward
         upright = (xmat[2, 2, 2] + 1) / 2
         cart_position = self.data.qpos[self._slider_qposadr]
         centered = (1 + _gaussian_tolerance(cart_position, 2.0)) / 2

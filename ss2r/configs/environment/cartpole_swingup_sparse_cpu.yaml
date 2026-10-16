@@ -5,3 +5,8 @@ task_name: CartpoleSwingupCPU
 task_params:
   # 1 with the pole upright and the cart within 0.25 of the center, else 0.
   sparse: true
+  # Cost of the action, subtracted from the sparse reward at every control
+  # step, as in the SOOPER experiments (HardCartpoleSwingupSparse): free within
+  # +-0.1, about the full scale beyond +-0.25. Makes doing nothing a local
+  # optimum, such that the reward has to be found by directed exploration.
+  action_cost_scale: 0.2
