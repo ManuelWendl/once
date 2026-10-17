@@ -8,7 +8,7 @@ defaults:
 # does not use the task reward, the one of cartpole_once can be reused.
 agent:
   # Exploration bonus on the task reward, needed to find the sparse reward.
-  optimism: 0.5
+  optimism: 250
   # Reward of a transition in which the recovery prior takes over, in the
   # model rollouts. With the action cost, the rewards before finding the sparse
   # reward are negative. Without a clear penalty, ending a rollout by an
@@ -16,3 +16,5 @@ agent:
   # policy learns to provoke interventions. -10 is worse than doing nothing
   # (reward 0) and than about 8 control steps at the full action cost.
   intervention_task_reward: -10.
+  init_alpha: 0.0
+  margin: 0.003

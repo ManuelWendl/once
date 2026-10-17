@@ -17,5 +17,6 @@ def get_train_fn(cfg, prior_cfg, checkpoint_path, trajectory_path=None):
         seed=cfg.training.seed,
         log_every=cfg.training.log_every,
         checkpoint_logdir=checkpoint_path,
+        checkpoint_every=cfg.training.get("checkpoint_every"),
         trajectory_logdir=trajectory_path,
     )

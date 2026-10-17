@@ -193,8 +193,13 @@ def train(
     progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
     checkpoint_logdir: Optional[str] = None,
     trajectory_logdir: Optional[str] = None,
+    checkpoint_every: Optional[int] = None,
 ):
-    """Trains online. `num_timesteps` and `log_every` are in environment steps."""
+    """Trains online. `num_timesteps` and `log_every` are in environment steps.
+
+    Only the latest checkpoint is kept, and with `checkpoint_every` also the
+    first one at or after every multiple of `checkpoint_every` environment steps.
+    """
     c = agent_cfg
     # Only used to query the sizes, the actor owns the environment.
     env = mujoco_cpu.make(environment_cfg, action_repeat, seed)
@@ -306,18 +311,26 @@ def train(
             training_state.model_params,
         )
 
+    # Steps of the checkpoints that are kept, and the next step to keep one at.
+    kept_steps: set[int] = set()
+    next_kept_step = [checkpoint_every or 0]
+
     def save(step: int) -> None:
         if not checkpoint_logdir:
             return
         dummy_ckpt_config = config_dict.ConfigDict({"network_factory_kwargs": {}})
         checkpoint.save(checkpoint_logdir, step, get_params(), dummy_ckpt_config)
         # Only keep the latest checkpoint, such that the disk usage does not
-        # grow with the number of logs.
-        if last_save and last_save != step:
+        # grow with the number of logs, and the ones kept every
+        # `checkpoint_every` steps.
+        if last_save and last_save != step and last_save not in kept_steps:
             shutil.rmtree(
                 os.path.join(checkpoint_logdir, f"{last_save:012d}"),
                 ignore_errors=True,
             )
+        if checkpoint_every and step >= next_kept_step[0]:
+            kept_steps.add(step)
+            next_kept_step[0] = (step // checkpoint_every + 1) * checkpoint_every
 
     env_steps = 0
     last_save = 0
