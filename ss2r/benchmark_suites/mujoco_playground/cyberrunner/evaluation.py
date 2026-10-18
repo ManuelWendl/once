@@ -9,10 +9,12 @@ import jax.numpy as jp
 import numpy as np
 from brax.training.acme import running_statistics
 from brax.training.agents.ppo import checkpoint
+from brax.training.agents.sac import checkpoint as sac_checkpoint
 from brax.training.networks import normalizer_select
 from omegaconf import OmegaConf
 
 from ss2r.algorithms.ppo import networks as ppo_networks
+from ss2r.algorithms.sac import networks as sac_networks
 from ss2r.benchmark_suites.mujoco_playground.cyberrunner import cyberrunner, randomize
 from ss2r.benchmark_suites.wrappers import BraxDomainRandomizationVmapWrapper
 
@@ -124,6 +126,41 @@ def load_policy_params(run_dir, ckpt=None) -> Tuple[Callable, Any]:
     inference = ppo_networks.make_inference_fn(networks)
     make_policy = lambda params: inference(params, deterministic=True)
     return make_policy, (normalizer, network_params["policy"])
+
+
+def best_recovery_checkpoint(run_dir) -> pathlib.Path:
+    """Recovery prior checkpoint whose in-training eval reached R most often."""
+    run_dir = pathlib.Path(run_dir)
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "summary.jsonl").read_text().splitlines()
+    ]
+    candidates = [r for r in rows if (run_dir / "ckpt" / f"{r['step']:012d}").is_dir()]
+    best = max(candidates, key=lambda r: r["eval/episode_recovery/reached"])
+    return run_dir / "ckpt" / f"{best['step']:012d}"
+
+
+def load_recovery_params(run_dir, ckpt=None) -> Tuple[Any, Any, Any, Any]:
+    """(networks, normalizer, policy params, Q_R params) of a recovery prior's
+    checkpoint (default: the last)."""
+    run_dir = pathlib.Path(run_dir)
+    agent = OmegaConf.load(run_dir / ".hydra" / "config.yaml").agent
+    params = sac_checkpoint.load(ckpt or last_checkpoint(run_dir))
+    normalizer, policy_params, _, qr_params = params[:4]
+    networks = sac_networks.make_sac_networks(
+        observation_size=normalizer.mean.shape[-1],
+        action_size=2,
+        preprocess_observations_fn=running_statistics.normalize
+        if agent.normalize_observations
+        else lambda x, y: x,
+        policy_hidden_layer_sizes=tuple(agent.policy_hidden_layer_sizes),
+        value_hidden_layer_sizes=tuple(agent.value_hidden_layer_sizes),
+        activation=getattr(jax.nn, agent.activation),
+        use_bro=agent.use_bro,
+        n_critics=agent.n_critics,
+        n_heads=agent.n_heads,
+    )
+    return networks, normalizer, policy_params, qr_params
 
 
 def load_policy(run_dir) -> Callable:
@@ -299,4 +336,116 @@ def export(run_dir, out_path, ckpt=None) -> pathlib.Path:
         normalizer, policy_params, agent.activation, agent.normalize_observations
     )
     onnx.save(model, str(out_path))
+    return ckpt
+
+
+def q_graph(normalizer: Any, qr_params: Any, activation: str, normalize: bool) -> Any:
+    """observation [obs], action [2] -> normalizer -> each critic's BroNet -> their
+    minimum = q [1], the pessimistic Q_R for the shield on the robot (ONCE's filter
+    reads the mean in training)."""
+    import onnx
+    from onnx import TensorProto, helper
+
+    critics = [qr_params["params"][name] for name in sorted(qr_params["params"])]
+    obs_size = critics[0]["Dense_0"]["kernel"].shape[0] - ACTION_SIZE
+    nodes: List[Any] = []
+    inits: List[Any] = []
+    x = "observation"
+    if normalize:
+        inits += [
+            _tensor(normalizer.mean, "obs_mean"),
+            _tensor(normalizer.std, "obs_std"),
+        ]
+        nodes += [
+            helper.make_node("Sub", [x, "obs_mean"], ["centered"]),
+            helper.make_node("Div", ["centered", "obs_std"], ["normalized"]),
+        ]
+        x = "normalized"
+    nodes.append(helper.make_node("Concat", [x, "action"], ["obs_action"], axis=0))
+    outputs = []
+    for c, layers in enumerate(critics):
+
+        def dense(i: int, inp: str) -> str:
+            layer, out = layers[f"Dense_{i}"], f"c{c}_dense_{i}"
+            inits.extend(
+                [
+                    _tensor(layer["kernel"], f"{out}_kernel"),
+                    _tensor(layer["bias"], f"{out}_bias"),
+                ]
+            )
+            nodes.extend(
+                [
+                    helper.make_node("MatMul", [inp, f"{out}_kernel"], [f"{out}_mm"]),
+                    helper.make_node("Add", [f"{out}_mm", f"{out}_bias"], [out]),
+                ]
+            )
+            return out
+
+        def norm(i: int, inp: str) -> str:
+            layer, out = layers[f"LayerNorm_{i}"], f"c{c}_norm_{i}"
+            inits.extend(
+                [
+                    _tensor(layer["scale"], f"{out}_scale"),
+                    _tensor(layer["bias"], f"{out}_bias"),
+                ]
+            )
+            nodes.append(
+                helper.make_node(
+                    "LayerNormalization",
+                    [inp, f"{out}_scale", f"{out}_bias"],
+                    [out],
+                    axis=-1,
+                    epsilon=1e-6,  # flax's default
+                )
+            )
+            return out
+
+        def act(inp: str) -> str:
+            nodes.extend(_activation(activation, inp, f"{inp}_act"))
+            return f"{inp}_act"
+
+        num_dense = sum(name.startswith("Dense_") for name in layers)
+        h = act(norm(0, dense(0, "obs_action")))
+        for block in range((num_dense - 2) // 2):
+            i = 2 * block + 1
+            g = act(norm(i, dense(i, h)))
+            g = norm(i + 1, dense(i + 1, g))
+            nodes.append(helper.make_node("Add", [g, h], [f"c{c}_res_{block}"]))
+            h = f"c{c}_res_{block}"
+        outputs.append(dense(num_dense - 1, h))
+    nodes += [
+        helper.make_node("Concat", outputs, ["critics"], axis=0),
+        helper.make_node("ReduceMin", ["critics"], ["q"], axes=[0], keepdims=1),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "cyberrunner_recovery_q",
+        [
+            helper.make_tensor_value_info("observation", TensorProto.FLOAT, [obs_size]),
+            helper.make_tensor_value_info("action", TensorProto.FLOAT, [ACTION_SIZE]),
+        ],
+        [helper.make_tensor_value_info("q", TensorProto.FLOAT, [1])],
+        inits,
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    onnx.checker.check_model(model)
+    return model
+
+
+def export_recovery(run_dir, out_dir, ckpt=None) -> pathlib.Path:
+    """Write backup_policy.onnx (observation -> action) and backup_q.onnx
+    (observation, action -> pessimistic Q_R) of a recovery prior's checkpoint
+    (default: the best one) and return that checkpoint."""
+    import onnx
+
+    run_dir, out_dir = pathlib.Path(run_dir), pathlib.Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    agent = OmegaConf.load(run_dir / ".hydra" / "config.yaml").agent
+    ckpt = ckpt or best_recovery_checkpoint(run_dir)
+    _, normalizer, policy_params, qr_params = load_recovery_params(run_dir, ckpt)
+    normalize = agent.normalize_observations
+    policy = policy_graph(normalizer, policy_params, agent.activation, normalize)
+    onnx.save(policy, str(out_dir / "backup_policy.onnx"))
+    q = q_graph(normalizer, qr_params, agent.activation, normalize)
+    onnx.save(q, str(out_dir / "backup_q.onnx"))
     return ckpt
