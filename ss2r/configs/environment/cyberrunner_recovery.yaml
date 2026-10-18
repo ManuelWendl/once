@@ -16,12 +16,22 @@ task_params:
   # from every hole centre (m), and slower than this (m/s).
   recovery_hole_distance: 0.0138
   recovery_speed: 0.05
+  # R counts once the ball has stayed in it this many steps in a row (1: entering it is
+  # enough). Raise training.episode_length by as much.
+  recovery_hold_steps: 1
   # Ball speed at reset (m/s), in a random direction on a randomly tilted board; the rig
   # policy's ball has p99 0.42 m/s.
   reset_speed: [0.05, 0.5]
   # The ball starts at least this far from every hole centre (m), just outside a hole
   # (7.5 mm): also where the backup can barely recover, which the rig policy grazes.
   reset_hole_distance: 0.008
+  # Half the resets start near a hole (up to 25 mm from its centre), rolling towards it
+  # within 60 deg. Uniform starts are mostly far from the holes (78% over 25 mm) and 90%
+  # reach R with an untrained policy: the critic would barely see where recovering is
+  # unlikely.
+  reset_near_hole_fraction: 0.5
+  reset_near_hole_max: 0.025
+  reset_toward_hole_deg: 60.0
 
 # The horizon is a true terminal state (no bootstrapping).
 terminate_on_timeout: true

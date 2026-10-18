@@ -15,8 +15,8 @@ environment:
     delay_ms: [0.0, 33.3]  # as the rig policy; the robot's latency is about 22 ms
 
 training:
-  num_timesteps: 100000000
-  num_evals: 50  # a checkpoint every 2M steps, to pick the best calibrated one
+  num_timesteps: 20000000
+  num_evals: 40  # a checkpoint every 500k steps, to pick the best calibrated one
   # As the SAC behavior policy: many randomized worlds per batch.
   num_envs: 4096
   action_repeat: 1
