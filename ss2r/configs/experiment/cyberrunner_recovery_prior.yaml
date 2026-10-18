@@ -20,7 +20,7 @@ training:
   # Recovery horizon H = 100 steps at 60 Hz (1.67 s), as Manuel's backup.
   episode_length: 100
   safe: false
-  # Q_R has to run on the robot, from the 50 observations.
+  # Q_R has to run on the robot, from its 30 observations (the history).
   value_privileged: false
   train_domain_randomization: true
   eval_domain_randomization: true
