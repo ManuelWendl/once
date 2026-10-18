@@ -1,0 +1,35 @@
+# CyberRunner recovery task (the safe backup's prior), with the physics and randomization of
+# the easy-maze PPO policy we run on the rig (command cap, ball stiction, joint friction for
+# the motors' dead band).
+defaults:
+  - cyberrunner
+
+task_name: CyberRunnerRecovery
+task_params:
+  # Any maze (easy, medium or hard), one backup each: the observation does not say which.
+  layout: easy
+  ball_stiction: true
+  # No path points: the ball position in the history already places the ball in the fixed
+  # maze, and the backup has nowhere to go (observation: the 30 history values).
+  num_path_points: 0
+  # Safe operable region R, as in Manuel's backup-sac: the ball centre farther than this
+  # from every hole centre (m), and slower than this (m/s).
+  recovery_hole_distance: 0.0138
+  recovery_speed: 0.05
+  # Ball speed at reset (m/s), in a random direction on a randomly tilted board.
+  reset_speed: [0.05, 0.4]
+
+# The horizon is a true terminal state (no bootstrapping).
+terminate_on_timeout: true
+# Sample a new initial state on every reset.
+resample_resets: true
+
+train_params:
+  joint_friction: [1.3, 3.2]
+  ball_static_deg: [0.8, 2.5]
+  ball_rolling_deg: [0.0, 1.2]
+
+eval_params:
+  joint_friction: [1.3, 3.2]
+  ball_static_deg: [0.8, 2.5]
+  ball_rolling_deg: [0.0, 1.2]

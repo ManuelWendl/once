@@ -25,6 +25,9 @@ from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (  # noqa: F401
     cyberrunner,
     randomize,
 )
+from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (  # noqa: F401
+    recovery as cyberrunner_recovery,
+)
 from ss2r.benchmark_suites.mujoco_playground.g1_joystick import g1_joystick
 from ss2r.benchmark_suites.mujoco_playground.go1_joystick import go1_joystick
 from ss2r.benchmark_suites.mujoco_playground.go2_joystick import (
@@ -614,6 +617,7 @@ randomization_fns = {
     "PandaPickCubeCartesian": franka_vision_randomize,
     "PandaPickCubeCartesianExtended": pick_cartesian.domain_randomize,
     "CyberRunner": randomize.domain_randomization,
+    "CyberRunnerRecovery": randomize.domain_randomization,
 }
 
 render_fns = {

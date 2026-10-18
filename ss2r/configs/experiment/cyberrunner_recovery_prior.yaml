@@ -1,0 +1,44 @@
+# @package _global_
+# Recovery prior (safe backup) for CyberRunner, on the maze of environment.task_params.layout
+# (easy by default): SAC with SPiDR over our domain randomization and the pessimistic recovery
+# reward, after Manuel's backup-sac.
+defaults:
+  - mujoco_playground_dm_control
+  - override /environment: cyberrunner_recovery
+  - override /agent/propagation: spidr
+  - override /agent/reward_robustness: pessimistic_recovery
+  - _self_
+
+environment:
+  task_params:
+    impl: jax  # MJX: SPiDR vmaps its perturbed models inside the env vmap, MuJoCo Warp cannot
+    delay_ms: [0.0, 33.3]  # as the rig policy; the robot's latency is about 22 ms
+
+training:
+  num_timesteps: 5000000
+  action_repeat: 1
+  # Recovery horizon H = 100 steps at 60 Hz (1.67 s), as Manuel's backup.
+  episode_length: 100
+  safe: false
+  # Q_R has to run on the robot, from the 50 observations.
+  value_privileged: false
+  train_domain_randomization: true
+  eval_domain_randomization: true
+  render: false
+
+agent:
+  activation: swish
+  # Finite horizon, no discounting.
+  discounting: 1.0
+  propagation:
+    num_envs: 8
+    # The copies differ only in the newest frame's tilt and ball position: with random
+    # commands the disagreement (lambda_ = 1) has median 7.5e-6, p75 1.05e-5, p90 1.5e-5,
+    # max 2.1e-5, close to Manuel's rho. lambda_ is his L = 8000.
+    lambda_: 8000.0
+    alpha: 0.
+    statistic: std
+  reward_robustness:
+    penalty_scale: 1.0
+    # The p75 (8000 * 1.05e-5): the penalty is 0.07 per step at the p90, 0.17 at the max.
+    margin: 0.085

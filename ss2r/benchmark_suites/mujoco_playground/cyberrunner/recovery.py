@@ -76,8 +76,8 @@ def default_config() -> config_dict.ConfigDict:
 class CyberRunnerRecovery(cyberrunner.CyberRunner):
     """CyberRunner that terminates when the ball reaches R or falls into a hole.
 
-    `state.reward` remains the maze reward. The recovery signal is written to
-    `state.info["recovery_reward"]`.
+    The reward is the recovery reward, also in `state.info["recovery_reward"]` for the
+    pessimistic critic, and only the recovery metrics are logged, not the maze's.
     """
 
     def __init__(
@@ -136,9 +136,8 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
     def reset(self, rng: jax.Array) -> mjx_env.State:
         state = super().reset(rng)
         state.info["recovery_reward"] = jp.zeros(())
-        state.metrics["recovery/reached"] = jp.zeros(())
-        state.metrics["recovery/violated"] = jp.zeros(())
-        return state
+        metrics = {"recovery/reached": jp.zeros(()), "recovery/violated": jp.zeros(())}
+        return state.replace(metrics=metrics)
 
     def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
         ball_before = self.ball_position(state.data)
@@ -154,11 +153,13 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
             self._recovery_speed,
         )
         nstate.info["recovery_reward"] = recovery_reward
-        nstate.metrics["recovery/reached"] = recovery_reward
-        nstate.metrics["recovery/violated"] = violated.astype(jp.float32)
+        # The maze's metrics go; those of wrappers (e.g. SPiDR's disagreement) stay.
+        metrics = {k: v for k, v in nstate.metrics.items() if k in state.metrics}
+        metrics["recovery/reached"] = recovery_reward
+        metrics["recovery/violated"] = violated.astype(jp.float32)
         # The goal does not end a recovery episode, only R and the holes do.
         done = ((recovery_reward > 0.0) | violated).astype(nstate.done.dtype)
-        return nstate.replace(done=done)
+        return nstate.replace(reward=recovery_reward, done=done, metrics=metrics)
 
 
 dm_control_suite.register_environment(
