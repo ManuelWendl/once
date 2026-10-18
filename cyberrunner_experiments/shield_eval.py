@@ -2,9 +2,11 @@
 
 MODE=backup    the backup acts from the first frame the ball is seen after a throw (test B)
 MODE=zero      zero commands instead: the do-nothing baseline of test B
-MODE=shield    the --onnx policy acts while Q_R(obs, its action) >= TAU, else the backup (test A,
-               as ONCE's recovery filter, decided at every step, but with the pessimistic Q_R
-               of the export: the lowest critic, where ONCE's filter takes their mean)
+MODE=shield    the --onnx policy acts while Q_R(obs, its action) >= TAU; below, the backup takes
+               over for BACKUP_STEPS steps (default 60, 1 s), then Q_R decides again (test A;
+               BACKUP_STEPS=1 decides at every step, as ONCE's recovery filter). Q_R is the
+               pessimistic one of the export: the lowest critic, where ONCE's filter takes their
+               mean
 MODE=behavior  the --onnx policy alone, with Q_R logged (test A without the shield)
 
 Run with the rig stack up (macos/run.sh hw) and macos/env.sh sourced, BACKUP=DIR holding
@@ -16,8 +18,9 @@ backup_policy.onnx and backup_q.onnx (cyberrunner_export_onnx.py --recovery):
 With MODE backup or zero an episode starts once the ball, picked up after the last one, is seen
 again more than START_MM from the start corner (balls the lift brings back are skipped). The
 backup and Q_R see the first 30 observations (the history), the behavior policy all 50. Per step,
-the action, the behavior's action, Q_R and whether the backup acted go to D/shield/episode_NNN.npz,
-row by row with the runner's own episode_NNN.npz.
+the action, the behavior's action, Q_R, whether the backup acted and the number of its takeover
+in the episode (0: none) go to D/shield/episode_NNN.npz, row by row with the runner's own
+episode_NNN.npz.
 """
 
 import os
@@ -32,6 +35,7 @@ HISTORY = (
 )
 MODE = os.environ.get("MODE", "shield")
 TAU = float(os.environ.get("TAU", "0.9"))
+BACKUP_STEPS = int(os.environ.get("BACKUP_STEPS", "60"))
 START = (
     np.array([float(x) for x in os.environ.get("START", "154,224").split(",")]) / 1000
 )
@@ -48,11 +52,22 @@ def _session(path) -> ort.InferenceSession:
 class ShieldPolicy:
     """Behavior policy, backup and Q_R; called once per step with the runner's observation."""
 
-    def __init__(self, backup_dir, behavior_onnx=None, mode=MODE, tau=TAU):
+    def __init__(
+        self,
+        backup_dir,
+        behavior_onnx=None,
+        mode=MODE,
+        tau=TAU,
+        backup_steps=BACKUP_STEPS,
+    ):
         if mode not in ("backup", "zero", "shield", "behavior"):
             raise ValueError(f"Unknown MODE {mode!r}")
+        if backup_steps < 1:
+            raise ValueError(f"BACKUP_STEPS {backup_steps} is below 1")
         backup_dir = pathlib.Path(backup_dir)
-        self.mode, self.tau = mode, tau
+        self.mode, self.tau, self.backup_steps = mode, tau, backup_steps
+        # Steps the backup still acts in its current takeover, and takeovers so far.
+        self.left, self.takeovers = 0, 0
         self.backup = _session(backup_dir / "backup_policy.onnx")
         self.q = _session(backup_dir / "backup_q.onnx")
         self.behavior = None
@@ -74,21 +89,32 @@ class ShieldPolicy:
             behavior = self.behavior.run(["action"], {"observation": obs})[0]
             action = behavior
         q = self.q.run(["q"], {"observation": history, "action": action})[0][0]
-        intervened = self.mode == "shield" and q < self.tau
+        if self.mode == "shield" and self.left == 0 and q < self.tau:
+            self.left = self.backup_steps
+            self.takeovers += 1
+        intervened = self.left > 0
         if intervened:
             action = backup
-        self.rows.append((action, behavior, q, intervened))
+            self.left -= 1
+        takeover = self.takeovers if intervened else 0
+        self.rows.append((action, behavior, q, intervened, takeover))
         return action
 
     def save(self, path) -> None:
-        """Write the steps since the last save, then start over."""
-        if not self.rows:
+        """Write the steps since the last save, then start a new episode."""
+        rows, self.rows = self.rows, []
+        self.left, self.takeovers = 0, 0
+        if not rows:
             return
-        action, behavior, q, intervened = (np.array(x) for x in zip(*self.rows))
+        action, behavior, q, intervened, takeover = (np.array(x) for x in zip(*rows))
         np.savez(
-            path, action=action, behavior_action=behavior, q=q, intervened=intervened
+            path,
+            action=action,
+            behavior_action=behavior,
+            q=q,
+            intervened=intervened,
+            takeover=takeover,
         )
-        self.rows = []
 
 
 def _wait(env, until, frames):
@@ -112,7 +138,10 @@ def main():
     log_dir = pathlib.Path(out) / "shield" / datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir.mkdir(parents=True, exist_ok=True)
     policy = ShieldPolicy(os.environ["BACKUP"], behavior_onnx)
-    print(f"MODE={policy.mode} TAU={policy.tau} logs in {log_dir}")
+    print(
+        f"MODE={policy.mode} TAU={policy.tau} BACKUP_STEPS={policy.backup_steps} "
+        f"logs in {log_dir}"
+    )
     episodes = []
 
     def save():

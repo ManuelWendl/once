@@ -33,5 +33,5 @@ python cyberrunner_experiments/calib_fit.py calib.npz easy_plate.json  # this re
 ```
 
 The other settings are environment variables, described in each script's docstring: `START`,
-`START_MM` and `LEVEL_AT_START` (`level_eval.py`), `TAU` and `BACKUP` (`shield_eval.py`). The
+`START_MM` and `LEVEL_AT_START` (`level_eval.py`), `TAU`, `BACKUP_STEPS` and `BACKUP` (`shield_eval.py`). The
 runner saves `episode_NNN.npz`, `episode_NNN.csv` and `summary.json` under `--output-dir`.
