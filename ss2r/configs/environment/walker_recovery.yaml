@@ -16,13 +16,21 @@ task_params:
   # Hard constraint: the walker falls over when its torso tilts by more than 60
   # degrees.
   hard_upright: 0.5
-  # Initial states: share of the joint ranges around the standing pose, and the
-  # largest initial velocities.
+  # Initial states, fitted to the states of walking (policies that learned to
+  # walk without a filter, 0.1% to 99.9% quantiles with a margin), such that the
+  # recovery prior also learns to recover from walking. The torso tilt is
+  # narrower than all tilts that did not fall, walking only needs about 0.4 rad.
+  reset_pitch: 0.5
   reset_joint_range: 0.8
-  reset_pitch_rate: 3.0
-  reset_forward_velocity: 2.0
-  reset_vertical_velocity: 0.5
+  # [low, high] of the hip, knee and ankle, for both legs. Walking slightly
+  # exceeds the (soft) joint ranges of the model.
+  reset_joint_angles: [[-0.55, 1.95], [-2.85, 0.35], [-1.15, 1.15]]
+  reset_pitch_rate: 9.0
+  # Walking is at 1 to 3 m/s, slower speeds stay for recovery and standing.
+  reset_forward_velocity: [-0.5, 3.5]
+  reset_vertical_velocity: 1.8
   reset_joint_velocity: 5.0
+  reset_joint_velocities: [[-27.0, 27.0], [-28.0, 41.0], [-48.0, 48.0]]
 
 # The horizon is a true terminal state (no bootstrapping).
 terminate_on_timeout: true

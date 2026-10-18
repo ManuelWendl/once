@@ -4,6 +4,9 @@ defaults:
   - override /environment: cartpole_swingup_sparse_cpu
   - _self_
 
+training:
+  num_timesteps: 200000
+
 # Same as cartpole_once, with the sparse swing-up reward. The recovery prior
 # does not use the task reward, the one of cartpole_once can be reused.
 agent:

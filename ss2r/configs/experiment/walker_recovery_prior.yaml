@@ -7,7 +7,10 @@ defaults:
   - _self_
 
 training:
-  num_timesteps: 5000000
+  num_timesteps: 8000000
+  # Many environments in parallel, the fastest on a 4090 (with 8 perturbed
+  # models per environment below).
+  num_envs: 1024
   action_repeat: 1
   # Recovery horizon H = episode_length / action_repeat = 40 steps (1 second).
   episode_length: 40
@@ -18,12 +21,16 @@ training:
 
 agent:
   activation: swish
+  # 8 per 128 environments, the update-to-data ratio of mujoco_playground_dm_control.
+  grad_updates_per_step: 64
   # Finite horizon, no discounting.
   discounting: 1.0
   propagation:
-    lambda_: 0.1
+    # Perturbed models per environment for the disagreement.
+    num_envs: 8
+    lambda_: 0.5
     alpha: 0.
     statistic: std
   reward_robustness:
     penalty_scale: 1.0
-    margin: 0.0
+    margin: 0.01

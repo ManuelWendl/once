@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, Union
 
 import jax
 import jax.numpy as jp
+import numpy as np
 from ml_collections import config_dict
 from mujoco import mjx
 from mujoco_playground import dm_control_suite
@@ -73,6 +74,21 @@ def recovery_reward_fn(
     return reached.astype("float32")
 
 
+def _bounds(value) -> tuple[float, float]:
+    """(low, high) from a symmetric bound or from [low, high]."""
+    if isinstance(value, (int, float)):
+        return -float(value), float(value)
+    low, high = value
+    return float(low), float(high)
+
+
+def _per_joint(bounds) -> tuple[np.ndarray, np.ndarray]:
+    """Lower and upper bounds of all joints from [low, high] of the hip, knee
+    and ankle, the same for both legs (joint order: right, then left)."""
+    lows, highs = zip(*(_bounds(b) for b in bounds))
+    return np.tile(lows, 2), np.tile(highs, 2)
+
+
 def default_config() -> config_dict.ConfigDict:
     config = walker.default_config()
     config.hard_upright = HARD_UPRIGHT
@@ -80,7 +96,10 @@ def default_config() -> config_dict.ConfigDict:
     config.recovery_pitch_rate = RECOVERY_PITCH_RATE
     config.recovery_leg_upright = RECOVERY_LEG_UPRIGHT
     # Initial states: share of the joint ranges around the standing pose, and
-    # the largest initial velocities.
+    # the largest initial velocities. Optionally, `reset_pitch` (largest tilt,
+    # by default all tilts that did not fall), `reset_forward_velocity` as
+    # [low, high], and `reset_joint_angles` and `reset_joint_velocities` as
+    # [low, high] for the hip, knee and ankle of both legs.
     config.reset_joint_range = 0.8
     config.reset_pitch_rate = 3.0
     config.reset_forward_velocity = 2.0
@@ -117,6 +136,29 @@ class WalkerRecovery(walker.PlanarWalker):
         self._reset_forward_velocity = get("reset_forward_velocity")
         self._reset_vertical_velocity = get("reset_vertical_velocity")
         self._reset_joint_velocity = get("reset_joint_velocity")
+        optional = lambda name, default: self._config.get(name, default)
+        self._reset_pitch = optional(
+            "reset_pitch", float(np.arccos(self._hard_upright))
+        )
+        # Bounds of the joint angles and velocities, (low, high) per joint.
+        joint_angles = optional("reset_joint_angles", None)
+        if joint_angles is None:
+            self._joint_angle_bounds = (
+                self._reset_joint_range * self._lowers,
+                self._reset_joint_range * self._uppers,
+            )
+        else:
+            self._joint_angle_bounds = _per_joint(joint_angles)
+        joint_velocities = optional("reset_joint_velocities", None)
+        if joint_velocities is None:
+            velocity = self._reset_joint_velocity
+            self._joint_velocity_bounds = (
+                np.full(self.mjx_model.nv - 3, -velocity),
+                np.full(self.mjx_model.nv - 3, velocity),
+            )
+        else:
+            self._joint_velocity_bounds = _per_joint(joint_velocities)
+        self._forward_velocity_bounds = _bounds(self._reset_forward_velocity)
         # All geoms except the floor are capsules: (radius, half length).
         self._body_geoms = jp.arange(1, self.mj_model.ngeom)
 
@@ -133,14 +175,13 @@ class WalkerRecovery(walker.PlanarWalker):
         state = super().reset(rng)
         rng1, rng2, rng3, rng4, rng5, rng6 = jax.random.split(rng, 6)
         nq, nv = self.mjx_model.nq, self.mjx_model.nv
-        max_pitch = jp.arccos(self._hard_upright)
+        max_pitch = self._reset_pitch
         qpos = jp.zeros(nq)
         qpos = qpos.at[2].set(
             jax.random.uniform(rng1, (), minval=-max_pitch, maxval=max_pitch)
         )
-        # Joint angles around the standing pose (zero), within the joint ranges.
-        lowers = self._reset_joint_range * self._lowers
-        uppers = self._reset_joint_range * self._uppers
+        # Joint angles around the standing pose (zero).
+        lowers, uppers = self._joint_angle_bounds
         qpos = qpos.at[3:].set(
             jax.random.uniform(rng2, (nq - 3,), minval=lowers, maxval=uppers)
         )
@@ -153,26 +194,16 @@ class WalkerRecovery(walker.PlanarWalker):
                 maxval=self._reset_vertical_velocity,
             )
         )
-        qvel = qvel.at[1].set(
-            jax.random.uniform(
-                rng3,
-                (),
-                minval=-self._reset_forward_velocity,
-                maxval=self._reset_forward_velocity,
-            )
-        )
+        low, high = self._forward_velocity_bounds
+        qvel = qvel.at[1].set(jax.random.uniform(rng3, (), minval=low, maxval=high))
         qvel = qvel.at[2].set(
             jax.random.uniform(
                 rng4, (), minval=-self._reset_pitch_rate, maxval=self._reset_pitch_rate
             )
         )
+        lowers, uppers = self._joint_velocity_bounds
         qvel = qvel.at[3:].set(
-            jax.random.uniform(
-                rng5,
-                (nv - 3,),
-                minval=-self._reset_joint_velocity,
-                maxval=self._reset_joint_velocity,
-            )
+            jax.random.uniform(rng5, (nv - 3,), minval=lowers, maxval=uppers)
         )
         # Place the lowest point of the walker on the ground.
         data = mjx_data.init(self.mjx_model, qpos=qpos, qvel=qvel)
