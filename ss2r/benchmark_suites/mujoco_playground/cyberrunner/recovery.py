@@ -26,6 +26,9 @@ RECOVERY_HOLE_DISTANCE = constants.HOLE_RADIUS + constants.MARBLE_RADIUS
 RECOVERY_SPEED = 0.05  # m/s
 # Reset: ball speed range (m/s); its direction and the board tilt are uniform.
 RESET_SPEED = (0.05, 0.4)
+# Reset: the ball centre at least this far from every hole centre (m). Below R's distance,
+# down to just outside a hole, the backup also starts where it can barely recover.
+RESET_HOLE_DISTANCE = RECOVERY_HOLE_DISTANCE
 # Candidate ball positions drawn per reset; the first one clear of holes and walls is used.
 NUM_CANDIDATES = 64
 
@@ -70,6 +73,7 @@ def default_config() -> config_dict.ConfigDict:
     config.recovery_hole_distance = RECOVERY_HOLE_DISTANCE
     config.recovery_speed = RECOVERY_SPEED
     config.reset_speed = list(RESET_SPEED)
+    config.reset_hole_distance = RESET_HOLE_DISTANCE
     return config
 
 
@@ -91,6 +95,12 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
         self._recovery_hole_distance = get("recovery_hole_distance")
         self._recovery_speed = get("recovery_speed")
         self._reset_speed = tuple(get("reset_speed"))
+        self._reset_hole_distance = get("reset_hole_distance")
+        if self._reset_hole_distance <= constants.HOLE_RADIUS:
+            raise ValueError(
+                f"reset_hole_distance {self._reset_hole_distance} m starts the ball in a "
+                f"hole (radius {constants.HOLE_RADIUS} m)"
+            )
         # Height of the resting ball's centre above the board's origin.
         data = mujoco.MjData(self._mj_model)
         mujoco.mj_forward(self._mj_model, data)
@@ -118,7 +128,7 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
         return qpos, qvel
 
     def _sample_ball(self, key: jax.Array) -> jax.Array:
-        """A board position away from the holes and clear of the walls."""
+        """A board position reset_hole_distance from the holes and clear of the walls."""
         r = constants.MARBLE_RADIUS
         candidates = jax.random.uniform(
             key,
@@ -129,7 +139,7 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
         gaps = jax.vmap(lambda b: dynamics.wall_gaps(b, *self._walls)[2].min())(
             candidates
         )
-        far = hole_distance(candidates, self._holes) > self._recovery_hole_distance
+        far = hole_distance(candidates, self._holes) > self._reset_hole_distance
         valid = far & (gaps > 0.0)
         return jp.where(valid.any(), candidates[jp.argmax(valid)], self._waypoints[0])
 

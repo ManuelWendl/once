@@ -16,8 +16,12 @@ task_params:
   # from every hole centre (m), and slower than this (m/s).
   recovery_hole_distance: 0.0138
   recovery_speed: 0.05
-  # Ball speed at reset (m/s), in a random direction on a randomly tilted board.
-  reset_speed: [0.05, 0.4]
+  # Ball speed at reset (m/s), in a random direction on a randomly tilted board; the rig
+  # policy's ball has p99 0.42 m/s.
+  reset_speed: [0.05, 0.5]
+  # The ball starts at least this far from every hole centre (m), just outside a hole
+  # (7.5 mm): also where the backup can barely recover, which the rig policy grazes.
+  reset_hole_distance: 0.008
 
 # The horizon is a true terminal state (no bootstrapping).
 terminate_on_timeout: true

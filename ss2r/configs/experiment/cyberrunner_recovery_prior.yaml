@@ -15,7 +15,10 @@ environment:
     delay_ms: [0.0, 33.3]  # as the rig policy; the robot's latency is about 22 ms
 
 training:
-  num_timesteps: 5000000
+  num_timesteps: 100000000
+  num_evals: 50  # a checkpoint every 2M steps, to pick the best calibrated one
+  # As the SAC behavior policy: many randomized worlds per batch.
+  num_envs: 4096
   action_repeat: 1
   # Recovery horizon H = 100 steps at 60 Hz (1.67 s), as Manuel's backup.
   episode_length: 100
@@ -30,6 +33,21 @@ agent:
   activation: swish
   # Finite horizon, no discounting.
   discounting: 1.0
+  # From the SAC behavior policy study: learning rates, 1/64 updates per transition,
+  # replay sizes, and the lowest critic in the target, which kept SAC stable there.
+  # Its privileged critic and action-rate penalty do not apply: Q_R runs on the robot,
+  # and the backup is judged by reaching R alone. reward_scaling stays 1 so that Q_R
+  # stays a probability.
+  learning_rate: 0.0003
+  critic_learning_rate: 0.0003
+  alpha_learning_rate: 0.0003
+  batch_size: 512
+  grad_updates_per_step: 64
+  min_replay_size: 65536
+  max_replay_size: 4194304
+  pessimistic_q: true
+  # ONCE's behavior network, which init_behavior_from_prior needs to match.
+  policy_hidden_layer_sizes: [256, 256, 256]
   propagation:
     num_envs: 8
     # The copies differ only in the newest frame's tilt and ball position: with random
