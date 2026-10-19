@@ -7,7 +7,7 @@ defaults:
   - _self_
 
 training:
-  num_timesteps: 8000000
+  num_timesteps: 10000000
   # Many environments in parallel, the fastest on a 4090 (with 8 perturbed
   # models per environment below).
   num_envs: 1024
@@ -28,7 +28,7 @@ agent:
   propagation:
     # Perturbed models per environment for the disagreement.
     num_envs: 8
-    lambda_: 0.5
+    lambda_: 0.1
     alpha: 0.
     statistic: std
   reward_robustness:
