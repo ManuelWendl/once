@@ -21,6 +21,7 @@ import functools
 import time
 from typing import Any, Callable, Mapping, Optional, Tuple
 
+import flax
 import jax
 import jax.numpy as jnp
 import optax
@@ -203,6 +204,7 @@ def train(
     entropy_bonus: bool = True,
     augment_pixels: bool = False,
     load_buffer: bool = False,
+    adversary_factory: Optional[Callable[..., Any]] = None,
 ):
     if min_replay_size >= num_timesteps:
         raise ValueError(
@@ -262,6 +264,11 @@ def train(
         n_heads=n_heads,
     )
     make_policy = sac_networks.make_inference_fn(sac_network)
+    adversary = None
+    if adversary_factory is not None:
+        adversary = adversary_factory(
+            env.unwrapped.adversary_observation_size, action_size, sac_network
+        )
     alpha_optimizer = optax.adam(learning_rate=alpha_learning_rate)
     make_optimizer = lambda lr, grad_clip_norm, grad_steps, wait=0: optax.chain(
         optax.clip_by_global_norm(grad_clip_norm),
@@ -305,6 +312,8 @@ def train(
         extras["state_extras"]["disagreement"] = jnp.zeros(())  # type: ignore
     for name in getattr(reward_q_transform, "required_extras", ()):
         extras["state_extras"][name] = jnp.zeros(())  # type: ignore
+    if adversary is not None:
+        extras["state_extras"].update(adversary.dummy_extras())  # type: ignore
     dummy_transition = Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
         observation=dummy_obs,
         action=dummy_action,
@@ -330,6 +339,10 @@ def train(
         qc_optimizer=qc_optimizer,
         penalizer_params=penalizer_params,
     )
+    if adversary is not None:
+        training_state = training_state.replace(  # type: ignore
+            adversary=adversary.init(jax.random.fold_in(global_key, 1))
+        )
     del global_key
     local_key, rb_key, env_key, eval_key = jax.random.split(local_key, 4)
     if restore_checkpoint_path is not None:
@@ -439,6 +452,61 @@ def train(
             transitions = transitions._replace(
                 observation=observations, next_observation=next_observations
             )
+        keys = (key_alpha, key_critic, key_actor)
+        if adversary is None:
+            training_state, metrics = backup_update(
+                training_state, transitions, keys, count
+            )
+        else:
+            training_state, metrics = turn_update(
+                training_state, transitions, keys, count
+            )
+        return (training_state, new_buffer_state, key, count + 1), metrics
+
+    def turn_update(
+        training_state: TrainingState,
+        transitions: Transition,
+        keys: Tuple[PRNGKey, PRNGKey, PRNGKey],
+        count: int,
+    ) -> Tuple[TrainingState, Metrics]:
+        """Updates the backup or, in its blocks of steps, the adversary (RARL's turns)."""
+        assert adversary is not None
+
+        def backup_turn(ts):
+            ts, metrics = backup_update(ts, transitions, keys, count)
+            return ts, {**metrics, **adversary.zero_metrics()}
+
+        def adversary_turn(ts):
+            adversary_state, adversary_metrics = adversary.update(
+                ts.adversary,
+                ts.policy_params,
+                ts.normalizer_params,
+                transitions,
+                keys[1],
+            )
+            shapes = jax.eval_shape(
+                lambda: backup_update(ts, transitions, keys, count)[1]
+            )
+            zeros = jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), shapes)
+            ts = ts.replace(  # type: ignore
+                adversary=adversary_state, gradient_steps=ts.gradient_steps + 1
+            )
+            return ts, {**zeros, **adversary_metrics}
+
+        return jax.lax.cond(
+            adversary.turn(training_state.env_steps),
+            adversary_turn,
+            backup_turn,
+            training_state,
+        )
+
+    def backup_update(
+        training_state: TrainingState,
+        transitions: Transition,
+        keys: Tuple[PRNGKey, PRNGKey, PRNGKey],
+        count: int,
+    ) -> Tuple[TrainingState, Metrics]:
+        key_alpha, key_critic, key_actor = keys
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
             training_state.alpha_params,
             training_state.policy_params,
@@ -561,8 +629,9 @@ def train(
             alpha_params=alpha_params,
             normalizer_params=training_state.normalizer_params,
             penalizer_params=new_penalizer_params,
+            adversary=training_state.adversary,
         )  # type: ignore
-        return (new_training_state, new_buffer_state, key, count + 1), metrics
+        return new_training_state, metrics
 
     def run_experience_step(
         training_state: TrainingState,
@@ -572,22 +641,53 @@ def train(
     ) -> Tuple[TrainingState, envs.State, ReplayBufferState, PRNGKey]:
         """Runs the non-jittable experience collection step."""
         experience_key, training_key = jax.random.split(key)
-        normalizer_params, env_state, buffer_state = get_experience_fn(
-            env,
-            make_policy,
-            training_state.policy_params,
-            training_state.normalizer_params,
-            replay_buffer,
-            env_state,
-            buffer_state,
-            experience_key,
-            extra_fields,
+        training_state, env_state, buffer_state = collect(
+            training_state, env_state, buffer_state, experience_key
         )
+        return training_state, env_state, buffer_state, training_key
+
+    def collect(
+        training_state: TrainingState,
+        env_state: envs.State,
+        buffer_state: ReplayBufferState,
+        key: PRNGKey,
+    ) -> Tuple[TrainingState, envs.State, ReplayBufferState]:
+        """One experience call into the replay buffer; with an adversary, it acts in its
+        phase of the episodes."""
+        adversary_state = training_state.adversary
+        if adversary is None:
+            normalizer_params, env_state, buffer_state = get_experience_fn(
+                env,
+                make_policy,
+                training_state.policy_params,
+                training_state.normalizer_params,
+                replay_buffer,
+                env_state,
+                buffer_state,
+                key,
+                extra_fields,
+            )
+        else:
+            normalizer_params, adversary_state, env_state, buffer_state = (
+                adversary.collect(
+                    env,
+                    make_policy,
+                    training_state.policy_params,
+                    training_state.normalizer_params,
+                    adversary_state,
+                    replay_buffer,
+                    env_state,
+                    buffer_state,
+                    key,
+                    extra_fields,
+                )
+            )
         training_state = training_state.replace(  # type: ignore
             normalizer_params=normalizer_params,
             env_steps=training_state.env_steps + env_steps_per_experience_call,
+            adversary=adversary_state,
         )
-        return training_state, env_state, buffer_state, training_key
+        return training_state, env_state, buffer_state
 
     def training_step_jitted(
         training_state: TrainingState,
@@ -632,20 +732,8 @@ def train(
             del unused
             training_state, env_state, buffer_state, key = carry
             key, new_key = jax.random.split(key)
-            new_normalizer_params, env_state, buffer_state = get_experience_fn(
-                env,
-                make_policy,
-                training_state.policy_params,
-                training_state.normalizer_params,
-                replay_buffer,
-                env_state,
-                buffer_state,
-                key,
-                extra_fields,
-            )
-            new_training_state = training_state.replace(
-                normalizer_params=new_normalizer_params,
-                env_steps=training_state.env_steps + env_steps_per_experience_call,
+            new_training_state, env_state, buffer_state = collect(
+                training_state, env_state, buffer_state, key
             )
             return (new_training_state, env_state, buffer_state, new_key), ()
 
@@ -784,6 +872,8 @@ def train(
                 training_state.qr_optimizer_state,
                 training_state.qc_optimizer_state,
             )
+            if adversary is not None:
+                params += (flax.serialization.to_state_dict(training_state.adversary),)
             if store_buffer:
                 if isinstance(buffer_state, RAEReplayBufferState):
                     params += (buffer_state.online_state,)
@@ -814,6 +904,8 @@ def train(
         training_state.qr_optimizer_state,
         training_state.qc_optimizer_state,
     )
+    if adversary is not None:
+        params += (flax.serialization.to_state_dict(training_state.adversary),)
     if store_buffer:
         if isinstance(buffer_state, RAEReplayBufferState):
             params += (buffer_state.online_state,)

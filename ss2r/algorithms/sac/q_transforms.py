@@ -258,6 +258,9 @@ class PessimisticReward(QTransformation):
     with rollouts that bootstrap instead of ending (as in the online phase), the
     penalty would otherwise accumulate without bound. Below the threshold of the
     filter, the value does not change its decision.
+
+    With `pessimistic_q`, the bootstrapped value is the lowest critic instead of
+    their mean.
     """
 
     required_extras = ("disagreement", "recovery_reward")
@@ -268,11 +271,13 @@ class PessimisticReward(QTransformation):
         margin: float,
         max_value: float = 1.0,
         min_value: float = 0.0,
+        pessimistic_q: bool = False,
     ) -> None:
         self.penalty_scale = penalty_scale
         self.margin = margin
         self.max_value = max_value
         self.min_value = min_value
+        self.pessimistic_q = pessimistic_q
 
     def __call__(
         self,
@@ -286,9 +291,8 @@ class PessimisticReward(QTransformation):
     ):
         next_action, _ = policy(transitions.next_observation)
         next_q = q_fn(transitions.next_observation, next_action)
-        next_v = jnp.clip(
-            next_q.mean(axis=-1), self.min_value * scale, self.max_value * scale
-        )
+        next_q = next_q.min(axis=-1) if self.pessimistic_q else next_q.mean(axis=-1)
+        next_v = jnp.clip(next_q, self.min_value * scale, self.max_value * scale)
         disagreement = transitions.extras["state_extras"]["disagreement"]
         recovery_reward = transitions.extras["state_extras"]["recovery_reward"]
         penalty = 2.0 * self.penalty_scale * jnp.maximum(disagreement - self.margin, 0)
@@ -361,6 +365,7 @@ def get_reward_q_transform(cfg):
         robustness = PessimisticReward(
             penalty_scale=cfg.agent.reward_robustness.penalty_scale,
             margin=cfg.agent.reward_robustness.margin,
+            pessimistic_q=cfg.agent.get("pessimistic_q", False),
         )
     else:
         raise ValueError("Unknown robustness")

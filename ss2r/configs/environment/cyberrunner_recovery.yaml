@@ -1,0 +1,59 @@
+# CyberRunner recovery task (the safe backup's prior), with the physics and randomization of
+# the easy-maze PPO policy we run on the rig (command cap, ball stiction, joint friction for
+# the motors' dead band).
+defaults:
+  - cyberrunner
+
+task_name: CyberRunnerRecovery
+task_params:
+  # Any maze (easy, medium or hard), one backup each: the observation does not say which.
+  layout: easy
+  ball_stiction: true
+  # No path points: the ball position in the history already places the ball in the fixed
+  # maze, and the backup has nowhere to go (observation: the 30 history values).
+  num_path_points: 0
+  # Safe operable region R, as in Manuel's backup-sac: the ball centre farther than this
+  # from every hole centre (m), and slower than this (m/s).
+  recovery_hole_distance: 0.0138
+  recovery_speed: 0.05
+  # R counts once the ball has stayed in it this many steps in a row (1: entering it is
+  # enough). Raise training.episode_length by as much.
+  recovery_hold_steps: 1
+  # Ball speed at reset (m/s), in a random direction on a randomly tilted board; the rig
+  # policy's ball has p99 0.42 m/s.
+  reset_speed: [0.05, 0.5]
+  # The ball starts at least this far from every hole centre (m), just outside a hole
+  # (7.5 mm): also where the backup can barely recover, which the rig policy grazes.
+  reset_hole_distance: 0.008
+  # Half the resets start near a hole (up to 25 mm from its centre), rolling towards it
+  # within 60 deg. Uniform starts are mostly far from the holes (78% over 25 mm) and 90%
+  # reach R with an untrained policy: the critic would barely see where recovering is
+  # unlikely.
+  reset_near_hole_fraction: 0.5
+  reset_near_hole_max: 0.025
+  reset_toward_hole_deg: 60.0
+  # Handover starts: this share of the resets runs a generic random driver for a few steps
+  # from the sampled start, the board first set turning at up to the given speed (rad/s),
+  # so that the episode starts as when the backup takes over from another controller: the
+  # board moving, commands pending and the driver's commands in the history.
+  reset_warmup_fraction: 0.0
+  reset_warmup_steps: 5
+  reset_warmup_board_speed: 1.0
+
+# The horizon is a true terminal state (no bootstrapping).
+terminate_on_timeout: true
+# Sample a new initial state on every reset.
+resample_resets: true
+# Initial states sampled per step, for the first envs that are done (0: one per env). The
+# warm-up makes a reset cost 20 physics steps, and about 300 of 4096 envs end per step.
+resample_pool_size: 0
+
+train_params:
+  joint_friction: [1.3, 3.2]
+  ball_static_deg: [0.8, 2.5]
+  ball_rolling_deg: [0.0, 1.2]
+
+eval_params:
+  joint_friction: [1.3, 3.2]
+  ball_static_deg: [0.8, 2.5]
+  ball_rolling_deg: [0.0, 1.2]

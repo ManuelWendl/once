@@ -1,0 +1,23 @@
+{
+  "A": [
+    [
+      0.9181270876052751,
+      0.0
+    ],
+    [
+      0.0,
+      0.9181270876052751
+    ]
+  ],
+  "b": [
+    0.0112240354874787,
+    0.010378927534346216
+  ],
+  "model": "radial scale about the camera's nadir (raised plate)",
+  "scale": 1.0891738338842303,
+  "centre_mm": [
+    137.09095180791275,
+    126.76875941956754
+  ],
+  "fitted_on": "easy_probe trajectories + start position"
+}

@@ -23,9 +23,10 @@ from ss2r.benchmark_suites.mujoco_playground.cartpole.spidr_cartpole import (
 )
 from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (  # noqa: F401
     cyberrunner,
+    randomize,
 )
-from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (
-    domain_randomization as cyberrunner_randomization,
+from ss2r.benchmark_suites.mujoco_playground.cyberrunner import (  # noqa: F401
+    recovery as cyberrunner_recovery,
 )
 from ss2r.benchmark_suites.mujoco_playground.g1_joystick import g1_joystick
 from ss2r.benchmark_suites.mujoco_playground.go1_joystick import go1_joystick
@@ -140,6 +141,7 @@ def get_wrap_env_fn(cfg):
                 cfg.agent.propagation.lambda_,
                 cfg.agent.propagation.alpha,
                 cfg.agent.propagation.get("statistic", "variance"),
+                cfg.agent.propagation.get("disagreement_on", "observation"),
             )
             return env
 
@@ -478,6 +480,7 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         nonepisodic=cfg.training.nonepisodic,
         terminate_on_timeout=task_cfg.get("terminate_on_timeout", False),
         resample_resets=task_cfg.get("resample_resets", False),
+        resample_pool_size=task_cfg.get("resample_pool_size", 0),
     )
     if vision:
         return train_env, train_env
@@ -549,6 +552,7 @@ def make_safety_gym_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         hard_resets=cfg.training.hard_resets,
         terminate_on_timeout=task_cfg.get("terminate_on_timeout", False),
         resample_resets=task_cfg.get("resample_resets", False),
+        resample_pool_size=task_cfg.get("resample_pool_size", 0),
     )
     eval_randomization_fn = (
         prepare_randomization_fn(
@@ -615,7 +619,8 @@ randomization_fns = {
     "go_to_goal_recovery": go_to_goal.domain_randomization,
     "PandaPickCubeCartesian": franka_vision_randomize,
     "PandaPickCubeCartesianExtended": pick_cartesian.domain_randomize,
-    "CyberRunner": cyberrunner_randomization.domain_randomization,
+    "CyberRunner": randomize.domain_randomization,
+    "CyberRunnerRecovery": randomize.domain_randomization,
 }
 
 render_fns = {
