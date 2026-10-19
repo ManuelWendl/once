@@ -12,8 +12,8 @@ training:
   # models per environment below).
   num_envs: 1024
   action_repeat: 1
-  # Recovery horizon H = episode_length / action_repeat = 40 steps (1 second).
-  episode_length: 40
+  # Recovery horizon H = episode_length / action_repeat = 100 steps (2.5 s).
+  episode_length: 100
   safe: false
   train_domain_randomization: true
   eval_domain_randomization: true

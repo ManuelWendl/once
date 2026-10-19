@@ -37,15 +37,17 @@ terminate_on_timeout: true
 # Sample a new initial state on every reset.
 resample_resets: true
 
-# Sample uniformly around the nominal value, as in walker.yaml.
+# Sample uniformly around the nominal value. The gear offsets are centered on
+# the one of the real system (walker_walk_cpu.yaml, 10), narrower than in
+# walker.yaml ([0, 20]) to keep the spread of the perturbed models small.
 train_params:
   torso_length: [0.0, 0.0]
   friction: [0.0, 0.0]
   joint_damping: [0.0, 0.0]
-  gear: [0., 20.]
+  gear: [5., 15.]
 
 eval_params:
   torso_length: [0.0, 0.0]
   friction: [0.0, 0.0]
   joint_damping: [0.0, 0.0]
-  gear: [0., 20.]
+  gear: [5., 15.]

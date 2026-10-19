@@ -28,7 +28,7 @@ agent:
   min_replay_size: 5000
   recovery_threshold: 0.9
   # Horizon of walker_recovery_prior.
-  recovery_horizon: 40
+  recovery_horizon: 100
   recovery_restart_rollouts: true
   pessimistic_q: true
   init_normalizer_from_prior: true
