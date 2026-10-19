@@ -480,6 +480,7 @@ def make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         nonepisodic=cfg.training.nonepisodic,
         terminate_on_timeout=task_cfg.get("terminate_on_timeout", False),
         resample_resets=task_cfg.get("resample_resets", False),
+        resample_pool_size=task_cfg.get("resample_pool_size", 0),
     )
     if vision:
         return train_env, train_env
@@ -551,6 +552,7 @@ def make_safety_gym_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         hard_resets=cfg.training.hard_resets,
         terminate_on_timeout=task_cfg.get("terminate_on_timeout", False),
         resample_resets=task_cfg.get("resample_resets", False),
+        resample_pool_size=task_cfg.get("resample_pool_size", 0),
     )
     eval_randomization_fn = (
         prepare_randomization_fn(

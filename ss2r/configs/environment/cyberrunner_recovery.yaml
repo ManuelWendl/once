@@ -44,6 +44,9 @@ task_params:
 terminate_on_timeout: true
 # Sample a new initial state on every reset.
 resample_resets: true
+# Initial states sampled per step, for the first envs that are done (0: one per env). The
+# warm-up makes a reset cost 20 physics steps, and about 300 of 4096 envs end per step.
+resample_pool_size: 0
 
 train_params:
   joint_friction: [1.3, 3.2]

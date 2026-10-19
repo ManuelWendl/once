@@ -42,6 +42,25 @@ class DomainRandomizationVmapBase(Wrapper):
             state = self._add_privileged_state(state)
         return state
 
+    def reset_subset(self, rng: jax.Array, index: jax.Array):
+        """Resets of the envs at `index` only, each with its own randomized model."""
+
+        def take(axis, subtree):
+            if axis is None:
+                return subtree
+            return jax.tree.map(lambda x: jp.take(x, index, axis=axis), subtree)
+
+        models = jax.tree.map(
+            take, self._in_axes, self._randomized_models, is_leaf=lambda x: x is None
+        )
+        state = jax.vmap(
+            lambda model, rng: self._env_fn(model).reset(rng),
+            in_axes=[self._in_axes, 0],
+        )(models, rng)
+        if self.augment_state:
+            state = self._add_privileged_state(state, self.domain_parameters[index])
+        return state
+
     def step(self, state, action: jax.Array):
         def step_fn(model, s, a):
             env = self._env_fn(model)
@@ -57,14 +76,16 @@ class DomainRandomizationVmapBase(Wrapper):
             state = self._add_privileged_state(state)
         return state
 
-    def _add_privileged_state(self, state):
+    def _add_privileged_state(self, state, domain_parameters=None):
         """Adds privileged state to the observation if augmentation is enabled."""
+        if domain_parameters is None:
+            domain_parameters = self.domain_parameters
         if isinstance(state.obs, jax.Array):
             state = state.replace(
                 obs={
                     "state": state.obs,
                     "privileged_state": jp.concatenate(
-                        [state.obs, self.domain_parameters], -1
+                        [state.obs, domain_parameters], -1
                     ),
                 }
             )
@@ -73,7 +94,7 @@ class DomainRandomizationVmapBase(Wrapper):
                 obs={
                     "state": state.obs["state"],
                     "privileged_state": jp.concatenate(
-                        [state.obs["privileged_state"], self.domain_parameters], -1
+                        [state.obs["privileged_state"], domain_parameters], -1
                     ),
                 }
             )
@@ -431,8 +452,30 @@ class ResampleAutoResetWrapper(Wrapper):
     """Automatically resets envs that are done to a newly sampled initial state.
 
     The info entries the env lists in `episode_info_keys` come from the new
-    initial state too.
+    initial state too. With `pool_size`, each step samples initial states for the
+    first `pool_size` envs that are done only (with their own randomized models)
+    instead of for all envs; more done envs than that share them.
     """
+
+    def __init__(self, env, pool_size: int = 0):
+        super().__init__(env)
+        self.pool_size = pool_size
+        if pool_size:
+            self._randomized = env
+            while not hasattr(self._randomized, "reset_subset"):
+                if not hasattr(self._randomized, "env"):
+                    raise ValueError("pool_size needs a domain randomization wrapper")
+                self._randomized = self._randomized.env
+
+    def _reset_done(self, rng: jax.Array, done: jax.Array):
+        """Initial states for the done envs (the others get any)."""
+        if not self.pool_size:
+            return self.env.reset(rng)
+        done = done > 0
+        index = jp.nonzero(done, size=self.pool_size, fill_value=0)[0]
+        pool = self._randomized.reset_subset(rng[index], index)
+        rank = jp.where(done, jp.cumsum(done) - 1, 0) % self.pool_size
+        return jax.tree.map(lambda x: x[rank], pool)
 
     def reset(self, rng: jax.Array) -> State | MjxState:
         rng, sample_rng = jax.vmap(jax.random.split, out_axes=1)(rng)
@@ -456,7 +499,7 @@ class ResampleAutoResetWrapper(Wrapper):
         rng, sample_rng = jax.vmap(jax.random.split, out_axes=1)(
             state.info["reset_rng"]
         )
-        reset_state = self.env.reset(sample_rng)
+        reset_state = self._reset_done(sample_rng, state.done)
 
         def where_done(x, y):
             done = state.done
