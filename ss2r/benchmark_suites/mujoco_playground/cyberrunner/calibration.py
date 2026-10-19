@@ -171,8 +171,8 @@ def hole_distance(env, states: Any) -> np.ndarray:
 
 
 class Calibrator:
-    """Q_R of a recovery prior's checkpoints, and whether the ball then reaches R, from
-    fixed recovery task states."""
+    """Q_R of a recovery prior's checkpoints, and whether the ball then reaches R or
+    falls into a hole, from fixed recovery task states."""
 
     def __init__(self, env, networks, horizon: int):
         def backup(normalizer, policy_params, obs):
@@ -182,52 +182,54 @@ class Calibrator:
         def q(normalizer, qr_params, obs, action):
             return networks.qr_network.apply(normalizer, qr_params, obs, action)
 
-        def reached(normalizer, policy_params, states, first_action, use_backup):
-            """first_action, then the backup (use_backup 1) or zero commands (0)."""
+        def outcome(normalizer, policy_params, states, first_action, use_backup):
+            """first_action, then the backup (use_backup 1) or zero commands (0):
+            whether the ball reaches R, and whether it falls first."""
 
             def step(carry, t):
-                state, active, reached = carry
+                state, active, reached, fell = carry
                 later = use_backup * backup(normalizer, policy_params, state.obs)
                 state = env.step(state, jp.where(t == 0, first_action, later))
                 reached = reached + active * state.metrics["recovery/reached"]
+                fell = fell + active * state.metrics["recovery/violated"]
                 active = active * (1.0 - state.done)
-                return (state, active, reached), None
+                return (state, active, reached, fell), None
 
             ones = jp.ones_like(states.done)
-            carry, _ = jax.lax.scan(
-                step, (states, ones, 0.0 * ones), jp.arange(horizon)
-            )
-            return carry[2]
+            carry = (states, ones, 0.0 * ones, 0.0 * ones)
+            carry, _ = jax.lax.scan(step, carry, jp.arange(horizon))
+            return carry[2], carry[3]
 
-        self._backup, self._q, self._reached = (
+        self._backup, self._q, self._outcome = (
             jax.jit(backup),
             jax.jit(q),
-            jax.jit(reached),
+            jax.jit(outcome),
         )
 
     def __call__(
         self, params: Tuple[Any, Any, Any], states: Any, actions: Optional[Any] = None
     ) -> Dict[str, np.ndarray]:
         """Q_R (lowest and mean critic) of the backup's action, or of `actions`, and
-        whether the ball reaches R within the horizon with that action, then the backup."""
+        whether the ball reaches R within the horizon with that action, then the backup,
+        or falls first (neither: a timeout)."""
         normalizer, policy_params, qr_params = params
         if actions is None:
             actions = self._backup(normalizer, policy_params, states.obs)
         q = np.asarray(self._q(normalizer, qr_params, states.obs, actions))
-        reached = self._reached(normalizer, policy_params, states, actions, 1.0)
+        reached, fell = self._outcome(normalizer, policy_params, states, actions, 1.0)
         return {
             "q_min": q.min(-1),
             "q_mean": q.mean(-1),
             "reached": np.asarray(reached),
+            "fell": np.asarray(fell),
         }
 
     def zero_commands(self, params: Tuple[Any, Any, Any], states: Any) -> np.ndarray:
         """Whether the ball reaches R within the horizon with zero commands."""
         normalizer, policy_params, _ = params
         actions = jp.zeros((states.done.shape[0], 2))
-        return np.asarray(
-            self._reached(normalizer, policy_params, states, actions, 0.0)
-        )
+        reached, _ = self._outcome(normalizer, policy_params, states, actions, 0.0)
+        return np.asarray(reached)
 
 
 def _mean(x: np.ndarray) -> float:
@@ -291,4 +293,43 @@ def calibration(
             for low, high in zip(DISTANCE_BANDS[:-1], DISTANCE_BANDS[1:])
             for band in [(distance >= low) & (distance < high)]
         ]
+    return result
+
+
+def upper_95(k: int, n: int) -> float:
+    """One-sided 95% upper bound of a rate seen k times in n (Clopper-Pearson)."""
+    if n == 0:
+        return float("nan")
+    return 1.0 if k >= n else float(stats.beta.ppf(0.95, k + 1, n - k))
+
+
+def interventions(
+    q: np.ndarray, behavior_fell: np.ndarray, backup_fell: np.ndarray
+) -> Dict[str, Any]:
+    """The shield's takeovers against what would have happened, per threshold TAU.
+
+    For each state, q is Q_R(obs, behavior action), behavior_fell whether the behavior
+    alone falls from there, and backup_fell whether the ball falls with the backup
+    taking over. The shield takes over where q < TAU: usefully if the behavior alone
+    falls and the backup does not, in vain if both fall, superfluously if the behavior
+    alone does not fall (harmfully if the backup then falls). It misses the states it
+    lets through where the behavior alone falls; missed_upper_95 bounds the share of
+    the behavior's falls it misses."""
+    q = np.asarray(q, float)
+    behavior_fell = np.asarray(behavior_fell) > 0
+    backup_fell = np.asarray(backup_fell) > 0
+    falls = int(behavior_fell.sum())
+    result: Dict[str, Any] = {"count": int(q.size), "behavior_falls": falls, "tau": {}}
+    for tau in TAUS:
+        takeover = q < tau
+        missed = int((~takeover & behavior_fell).sum())
+        result["tau"][str(tau)] = {
+            "takeovers": int(takeover.sum()),
+            "useful": int((takeover & behavior_fell & ~backup_fell).sum()),
+            "in_vain": int((takeover & behavior_fell & backup_fell).sum()),
+            "superfluous": int((takeover & ~behavior_fell).sum()),
+            "harmful": int((takeover & ~behavior_fell & backup_fell).sum()),
+            "missed": missed,
+            "missed_upper_95": upper_95(missed, falls),
+        }
     return result
