@@ -254,16 +254,25 @@ class PessimisticReward(QTransformation):
     The recovery reward is given at most once, so the return can never exceed
     `max_value`. The bootstrapped value and the target are bounded accordingly:
     without discounting, nothing else stops the value from drifting upwards.
+    They are also bounded from below by `min_value`: without discounting and
+    with rollouts that bootstrap instead of ending (as in the online phase), the
+    penalty would otherwise accumulate without bound. Below the threshold of the
+    filter, the value does not change its decision.
     """
 
     required_extras = ("disagreement", "recovery_reward")
 
     def __init__(
-        self, penalty_scale: float, margin: float, max_value: float = 1.0
+        self,
+        penalty_scale: float,
+        margin: float,
+        max_value: float = 1.0,
+        min_value: float = 0.0,
     ) -> None:
         self.penalty_scale = penalty_scale
         self.margin = margin
         self.max_value = max_value
+        self.min_value = min_value
 
     def __call__(
         self,
@@ -277,14 +286,16 @@ class PessimisticReward(QTransformation):
     ):
         next_action, _ = policy(transitions.next_observation)
         next_q = q_fn(transitions.next_observation, next_action)
-        next_v = jnp.minimum(next_q.mean(axis=-1), self.max_value * scale)
+        next_v = jnp.clip(
+            next_q.mean(axis=-1), self.min_value * scale, self.max_value * scale
+        )
         disagreement = transitions.extras["state_extras"]["disagreement"]
         recovery_reward = transitions.extras["state_extras"]["recovery_reward"]
         penalty = 2.0 * self.penalty_scale * jnp.maximum(disagreement - self.margin, 0)
         target_q = (
             recovery_reward - penalty
         ) * scale + transitions.discount * gamma * next_v
-        target_q = jnp.minimum(target_q, self.max_value * scale)
+        target_q = jnp.clip(target_q, self.min_value * scale, self.max_value * scale)
         return jax.lax.stop_gradient(target_q)
 
 
