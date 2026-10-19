@@ -1,0 +1,30 @@
+# @package _global_
+# Recovery prior trained against a handover adversary (ss2r/algorithms/sac/adversary.py): after
+# the warm-up, in half the episodes an adversary sends the commands for 1 to 30 steps (up to
+# 0.5 s) to make the ball fall, then the backup takes over. Both learn from all transitions,
+# the backup's critic always continuing with the backup, and they are updated in turns (RARL).
+defaults:
+  - cyberrunner_recovery_prior
+  - _self_
+
+environment:
+  # The warm-up's resets for 512 done envs per step (about 300 end per step), not 4096.
+  resample_pool_size: 512
+  task_params:
+    reset_warmup_fraction: 1.0
+    reset_near_hole_fraction: 0.25
+    adversary_fraction: 0.5
+    adversary_max_steps: 30
+
+agent:
+  adversary:
+    # Blocks of this many environment steps, the backup's first: each is updated in its own
+    # blocks only, so the backup gets half the updates of a run without the adversary.
+    alternate_every_steps: 200000
+    learning_rate: 0.0003
+    critic_learning_rate: 0.0003
+    alpha_learning_rate: 0.0003
+    init_alpha: 1.0
+    tau: 0.005
+    hidden_layer_sizes: [256, 256, 256]
+    activation: swish

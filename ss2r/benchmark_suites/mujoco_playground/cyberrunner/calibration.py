@@ -34,6 +34,7 @@ def recovery_task(run_dir) -> Tuple[Dict[str, Any], int, Dict[str, Any]]:
     """A recovery prior run's task options, horizon and evaluation randomization."""
     cfg = _config(run_dir)
     task = OmegaConf.to_container(cfg.environment.task_params)
+    task["adversary_fraction"] = 0.0  # type: ignore[index]  # the backup alone
     ranges = OmegaConf.to_container(cfg.environment.eval_params)
     return task, int(cfg.training.episode_length), ranges  # type: ignore
 

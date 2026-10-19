@@ -53,6 +53,12 @@ WARMUP_DRIVER_TIME_CONSTANT_S = (0.1, 2.0)
 # Starts whose ball falls during the warm-up are discarded: 13% fall (25% of those near a
 # hole), so all of 4 candidates fall in about 0.03% of the resets.
 WARMUP_CANDIDATES = 4
+# Adversary: this share of the episodes starts with a phase of 1 to ADVERSARY_MAX_STEPS steps
+# in which an adversary trained alongside the backup sends the commands, then the backup
+# takes over. info["adversary_left"] counts the phase's steps left, info["adversary_obs"] is
+# the adversary's observation: the true state, which only the simulation has.
+ADVERSARY_FRACTION = 0.0
+ADVERSARY_MAX_STEPS = 30
 
 
 def hole_distance(ball, holes):
@@ -103,6 +109,8 @@ def default_config() -> config_dict.ConfigDict:
     config.reset_warmup_fraction = RESET_WARMUP_FRACTION
     config.reset_warmup_steps = RESET_WARMUP_STEPS
     config.reset_warmup_board_speed = RESET_WARMUP_BOARD_SPEED
+    config.adversary_fraction = ADVERSARY_FRACTION
+    config.adversary_max_steps = ADVERSARY_MAX_STEPS
     return config
 
 
@@ -164,6 +172,22 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
                 "start_commands",
                 "start_delay",
                 "start_stuck",
+            )
+        self._adversary_fraction = get("adversary_fraction")
+        self._adversary_max_steps = int(get("adversary_max_steps"))
+        if not 0.0 <= self._adversary_fraction <= 1.0:
+            raise ValueError(
+                f"adversary_fraction {self._adversary_fraction} is not in [0, 1]"
+            )
+        if self._adversary_fraction > 0.0 and self._adversary_max_steps < 1:
+            raise ValueError(
+                f"adversary_max_steps {self._adversary_max_steps} is below 1"
+            )
+        if self.has_adversary:
+            self.episode_info_keys = (
+                *self.episode_info_keys,
+                "adversary_left",
+                "adversary_obs",
             )
         # Height of the resting ball's centre above the board's origin.
         data = mujoco.MjData(self._mj_model)
@@ -329,7 +353,53 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
         state.info["recovery_hold"] = jp.zeros((), jp.int32)
         state.info["spidr_state"] = self.spidr_state(state.data)
         metrics = {"recovery/reached": jp.zeros(()), "recovery/violated": jp.zeros(())}
+        if self.has_adversary:
+            k_use, k_steps = jax.random.split(jax.random.fold_in(rng, 9))
+            steps = jax.random.randint(k_steps, (), 1, self._adversary_max_steps + 1)
+            use = jax.random.uniform(k_use) < self._adversary_fraction
+            left = jp.where(use, steps, 0)
+            state.info["adversary_left"] = left
+            state.info["adversary_obs"] = self.adversary_observation(
+                state.data, state.info, left
+            )
+            metrics["adversary/acting"] = jp.zeros(())
+            metrics["adversary/violated"] = jp.zeros(())
         return state.replace(metrics=metrics)
+
+    @property
+    def has_adversary(self) -> bool:
+        return self._adversary_fraction > 0.0
+
+    @property
+    def adversary_observation_size(self) -> int:
+        return 11 + 2 * self._num_commands
+
+    def adversary_observation(
+        self, data: mjx.Data, info: Dict[str, Any], left: jax.Array
+    ) -> jax.Array:
+        """The true state: tilts and their velocities, ball position and velocity on the
+        board, pending commands, delay, whether the ball is stuck, and the share of the
+        adversary's phase left."""
+        board_mat = data.xmat[self._board_body_id].reshape(3, 3)
+        ball_velocity = (board_mat.T @ data.qvel[2:5])[:2]
+        low, high = self._delay_substeps
+        scalars = jp.stack(
+            [
+                (info["delay"] - low) / max(high - low, 1),
+                info["stuck"].astype(jp.float32),
+                left / self._adversary_max_steps,
+            ]
+        )
+        return jp.concatenate(
+            [
+                data.qpos[:2],
+                data.qvel[:2],
+                self.ball_position(data),
+                ball_velocity,
+                info["commands"].reshape(-1),
+                scalars,
+            ]
+        ).astype(jp.float32)
 
     def spidr_state(self, data: mjx.Data) -> jax.Array:
         """What SPiDR's copies disagree on with disagreement_on "state": the tilts, the
@@ -366,6 +436,16 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
         metrics = {k: v for k, v in nstate.metrics.items() if k in state.metrics}
         metrics["recovery/reached"] = recovery_reward
         metrics["recovery/violated"] = violated.astype(jp.float32)
+        if self.has_adversary:
+            # This step's commands came from the adversary while its phase lasted.
+            acting = state.info["adversary_left"] > 0
+            left = jp.maximum(state.info["adversary_left"] - 1, 0)
+            nstate.info["adversary_left"] = left
+            nstate.info["adversary_obs"] = self.adversary_observation(
+                nstate.data, nstate.info, left
+            )
+            metrics["adversary/acting"] = acting.astype(jp.float32)
+            metrics["adversary/violated"] = (violated & acting).astype(jp.float32)
         # The goal does not end a recovery episode, only R and the holes do.
         done = ((recovery_reward > 0.0) | violated).astype(nstate.done.dtype)
         return nstate.replace(reward=recovery_reward, done=done, metrics=metrics)
