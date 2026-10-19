@@ -17,20 +17,26 @@ task_params:
   # degrees.
   hard_upright: 0.5
   # Initial states, fitted to the states of walking (policies that learned to
-  # walk without a filter, 0.1% to 99.9% quantiles with a margin), such that the
-  # recovery prior also learns to recover from walking. The torso tilt is
-  # narrower than all tilts that did not fall, walking only needs about 0.4 rad.
-  reset_pitch: 0.5
+  # walk without a filter, 0.5% to 99.5% quantiles with a small margin), such
+  # that the recovery prior also learns to recover from walking, without the
+  # long tails of the velocities. The torso tilt is narrower than all tilts that
+  # did not fall, walking only needs about 0.35 rad.
+  reset_pitch: 0.4
   reset_joint_range: 0.8
   # [low, high] of the hip, knee and ankle, for both legs. Walking slightly
   # exceeds the (soft) joint ranges of the model.
-  reset_joint_angles: [[-0.55, 1.95], [-2.85, 0.35], [-1.15, 1.15]]
-  reset_pitch_rate: 9.0
-  # Walking is at 1 to 3 m/s, slower speeds stay for recovery and standing.
-  reset_forward_velocity: [-0.5, 3.5]
-  reset_vertical_velocity: 1.8
+  reset_joint_angles: [[-0.5, 1.9], [-2.8, 0.2], [-1.05, 1.05]]
+  reset_pitch_rate: 7.0
+  # Walking is at 1.2 to 2.9 m/s, slower speeds stay for recovery and standing.
+  reset_forward_velocity: [-0.5, 3.0]
+  reset_vertical_velocity: 1.3
   reset_joint_velocity: 5.0
-  reset_joint_velocities: [[-27.0, 27.0], [-28.0, 41.0], [-48.0, 48.0]]
+  reset_joint_velocities: [[-21.0, 19.0], [-21.0, 32.0], [-37.0, 33.0]]
+  # A share of the starts near standing, the initial state of the task (in R):
+  # without them, the prior never acts from standing and does not learn to keep
+  # the walker up. Noise of [angles, velocities] around standing.
+  reset_standing_share: 0.2
+  reset_standing_noise: [0.05, 0.1]
 
 # The horizon is a true terminal state (no bootstrapping).
 terminate_on_timeout: true

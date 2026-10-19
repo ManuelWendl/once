@@ -99,7 +99,9 @@ def default_config() -> config_dict.ConfigDict:
     # the largest initial velocities. Optionally, `reset_pitch` (largest tilt,
     # by default all tilts that did not fall), `reset_forward_velocity` as
     # [low, high], and `reset_joint_angles` and `reset_joint_velocities` as
-    # [low, high] for the hip, knee and ankle of both legs.
+    # [low, high] for the hip, knee and ankle of both legs. `reset_standing_share`
+    # of the starts are near standing instead, with `reset_standing_noise` on the
+    # angles and velocities.
     config.reset_joint_range = 0.8
     config.reset_pitch_rate = 3.0
     config.reset_forward_velocity = 2.0
@@ -137,6 +139,12 @@ class WalkerRecovery(walker.PlanarWalker):
         self._reset_vertical_velocity = get("reset_vertical_velocity")
         self._reset_joint_velocity = get("reset_joint_velocity")
         optional = lambda name, default: self._config.get(name, default)
+        # Share of the starts near standing, and the noise of their angles and
+        # velocities.
+        self._reset_standing_share = float(optional("reset_standing_share", 0.0))
+        self._reset_standing_noise = tuple(
+            float(x) for x in optional("reset_standing_noise", (0.05, 0.1))
+        )
         self._reset_pitch = optional(
             "reset_pitch", float(np.arccos(self._hard_upright))
         )
@@ -173,7 +181,7 @@ class WalkerRecovery(walker.PlanarWalker):
     def reset(self, rng: jax.Array) -> mjx_env.State:
         """Samples a perturbed standing state, anywhere it did not fall over."""
         state = super().reset(rng)
-        rng1, rng2, rng3, rng4, rng5, rng6 = jax.random.split(rng, 6)
+        rng1, rng2, rng3, rng4, rng5, rng6, rng7, rng8, rng9 = jax.random.split(rng, 9)
         nq, nv = self.mjx_model.nq, self.mjx_model.nv
         max_pitch = self._reset_pitch
         qpos = jp.zeros(nq)
@@ -205,6 +213,24 @@ class WalkerRecovery(walker.PlanarWalker):
         qvel = qvel.at[3:].set(
             jax.random.uniform(rng5, (nv - 3,), minval=lowers, maxval=uppers)
         )
+        # A share of the starts near standing, the initial state of the task,
+        # such that the prior also learns to act in and around R.
+        standing = jax.random.uniform(rng7) < self._reset_standing_share
+        angle_noise, velocity_noise = self._reset_standing_noise
+        standing_qpos = (
+            jp.zeros(nq)
+            .at[2:]
+            .set(
+                jax.random.uniform(
+                    rng8, (nq - 2,), minval=-angle_noise, maxval=angle_noise
+                )
+            )
+        )
+        standing_qvel = jax.random.uniform(
+            rng9, (nv,), minval=-velocity_noise, maxval=velocity_noise
+        )
+        qpos = jp.where(standing, standing_qpos, qpos)
+        qvel = jp.where(standing, standing_qvel, qvel)
         # Place the lowest point of the walker on the ground.
         data = mjx_data.init(self.mjx_model, qpos=qpos, qvel=qvel)
         qpos = qpos.at[0].add(-self._lowest_point(data))

@@ -23,8 +23,8 @@ environment:
 
 agent:
   # Exploration bonus on the task reward.
-  optimism: 0.05
-  num_critic_updates_per_actor_update: 1
+  optimism: 50
+  num_critic_updates_per_actor_update: 2
   min_replay_size: 5000
   recovery_threshold: 0.9
   # Horizon of walker_recovery_prior.
