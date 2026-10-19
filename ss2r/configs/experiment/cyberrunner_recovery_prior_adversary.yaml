@@ -8,8 +8,6 @@ defaults:
   - _self_
 
 environment:
-  # The warm-up's resets for 512 done envs per step (about 300 end per step), not 4096.
-  resample_pool_size: 512
   task_params:
     reset_warmup_fraction: 1.0
     reset_near_hole_fraction: 0.25

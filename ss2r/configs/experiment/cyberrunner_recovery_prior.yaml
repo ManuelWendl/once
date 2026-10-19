@@ -10,6 +10,9 @@ defaults:
   - _self_
 
 environment:
+  # Resets for 512 done envs per step (about 300 of 4096 end per step), not all 4096: the
+  # handover starts' warm-up makes a reset cost 20 physics steps.
+  resample_pool_size: 512
   task_params:
     impl: jax  # MJX: SPiDR vmaps its perturbed models inside the env vmap, MuJoCo Warp cannot
     delay_ms: [0.0, 33.3]  # as the rig policy; the robot's latency is about 22 ms
