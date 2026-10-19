@@ -23,7 +23,7 @@ environment:
 
 agent:
   # Exploration bonus on the task reward.
-  optimism: 50
+  optimism: 0.5
   num_critic_updates_per_actor_update: 2
   min_replay_size: 5000
   recovery_threshold: 0.9
