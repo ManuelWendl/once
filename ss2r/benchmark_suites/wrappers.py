@@ -299,11 +299,17 @@ class SPiDR(Wrapper):
         lambda_,
         alpha,
         statistic="variance",
+        disagreement_on="observation",
     ):
         super().__init__(env)
         if statistic not in ("variance", "std"):
             raise ValueError(f"Unknown disagreement statistic {statistic}")
+        # "state": the copies' info["spidr_state"], which the env provides (e.g. with
+        # velocities, which the observation does not have).
+        if disagreement_on not in ("observation", "state"):
+            raise ValueError(f"Unknown disagreement_on {disagreement_on}")
         self.statistic = statistic
+        self.disagreement_on = disagreement_on
         if hasattr(env, "sys"):
             self.perturbed_env = DomainRandomizationVmapWrapper(
                 env, randomzation_fn, augment_state=False
@@ -328,7 +334,7 @@ class SPiDR(Wrapper):
         state.info["state_propagation"]["next_obs"] = self._tile(_get_obs(state))
         state.info["state_propagation"]["cost"] = self._tile(cost)
         disagreement = self._compute_disagreement(
-            state.info["state_propagation"]["next_obs"]
+            self._tile(self._disagreement_input(state))
         )
         state.info["disagreement"] = disagreement
         state.metrics["disagreement"] = disagreement
@@ -339,7 +345,9 @@ class SPiDR(Wrapper):
         v_state, v_action = self._tile(state), self._tile(action)
         perturbed_nstate = self.perturbed_env.step(v_state, v_action)
         next_obs = _get_obs(perturbed_nstate)
-        disagreement = self._compute_disagreement(next_obs)
+        disagreement = self._compute_disagreement(
+            self._disagreement_input(perturbed_nstate)
+        )
         nstate.info["state_propagation"]["next_obs"] = next_obs
         nstate.info["state_propagation"]["cost"] = perturbed_nstate.info.get(
             "cost", jp.zeros_like(perturbed_nstate.reward)
@@ -347,6 +355,11 @@ class SPiDR(Wrapper):
         nstate.info["disagreement"] = disagreement
         nstate.metrics["disagreement"] = disagreement
         return nstate
+
+    def _disagreement_input(self, state: State) -> jax.Array:
+        if self.disagreement_on == "state":
+            return state.info["spidr_state"]
+        return _get_obs(state)
 
     def _compute_disagreement(self, next_obs: jax.Array) -> jax.Array:
         if self.statistic == "std":

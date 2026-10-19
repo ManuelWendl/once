@@ -141,6 +141,7 @@ def get_wrap_env_fn(cfg):
                 cfg.agent.propagation.lambda_,
                 cfg.agent.propagation.alpha,
                 cfg.agent.propagation.get("statistic", "variance"),
+                cfg.agent.propagation.get("disagreement_on", "observation"),
             )
             return env
 

@@ -56,6 +56,10 @@ agent:
     lambda_: 8000.0
     alpha: 0.
     statistic: std
+    # observation: the 30 history values; state: the tilts, the ball position and how far
+    # the tilts' velocities move them in one step (CyberRunnerRecovery.spidr_state), which
+    # needs its own lambda_.
+    disagreement_on: observation
   reward_robustness:
     penalty_scale: 1.0
     # The p75 (8000 * 1.05e-5): the penalty is 0.07 per step at the p90, 0.17 at the max.

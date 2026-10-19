@@ -327,8 +327,17 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
             state = super().reset(rng)
         state.info["recovery_reward"] = jp.zeros(())
         state.info["recovery_hold"] = jp.zeros((), jp.int32)
+        state.info["spidr_state"] = self.spidr_state(state.data)
         metrics = {"recovery/reached": jp.zeros(()), "recovery/violated": jp.zeros(())}
         return state.replace(metrics=metrics)
+
+    def spidr_state(self, data: mjx.Data) -> jax.Array:
+        """What SPiDR's copies disagree on with disagreement_on "state": the tilts, the
+        ball position on the board, and how far the tilts' velocities move them in one
+        step (the copies start from one state, so the ball's moves show in its position)."""
+        return jp.concatenate(
+            [data.qpos[:2], self.ball_position(data), self.dt * data.qvel[:2]]
+        )
 
     def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
         # The episode wrapper zeroes `steps` after an auto-reset.
@@ -351,6 +360,8 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
         recovery_reward = (hold >= self._recovery_hold).astype(jp.float32)
         nstate.info["recovery_hold"] = hold
         nstate.info["recovery_reward"] = recovery_reward
+        if "spidr_state" in state.info:  # states built elsewhere (calibration) lack it
+            nstate.info["spidr_state"] = self.spidr_state(nstate.data)
         # The maze's metrics go; those of wrappers (e.g. SPiDR's disagreement) stay.
         metrics = {k: v for k, v in nstate.metrics.items() if k in state.metrics}
         metrics["recovery/reached"] = recovery_reward
