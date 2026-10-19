@@ -32,6 +32,13 @@ task_params:
   reset_near_hole_fraction: 0.5
   reset_near_hole_max: 0.025
   reset_toward_hole_deg: 60.0
+  # Handover starts: this share of the resets runs a generic random driver for a few steps
+  # from the sampled start, the board first set turning at up to the given speed (rad/s),
+  # so that the episode starts as when the backup takes over from another controller: the
+  # board moving, commands pending and the driver's commands in the history.
+  reset_warmup_fraction: 0.0
+  reset_warmup_steps: 5
+  reset_warmup_board_speed: 1.0
 
 # The horizon is a true terminal state (no bootstrapping).
 terminate_on_timeout: true

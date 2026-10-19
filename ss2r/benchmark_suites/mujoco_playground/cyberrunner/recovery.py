@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 import jax
 import jax.numpy as jp
 import mujoco
+import numpy as np
 from ml_collections import config_dict
 from mujoco import mjx
 from mujoco_playground import dm_control_suite
@@ -40,6 +41,18 @@ RESET_NEAR_HOLE_MAX = 0.025
 RESET_TOWARD_HOLE_DEG = 60.0
 # Candidate ball positions drawn per reset; the first one clear of holes and walls is used.
 NUM_CANDIDATES = 64
+# Handover starts: this share of the resets starts where another controller hands over,
+# after RESET_WARMUP_STEPS steps of a generic driver from the sampled start, the board first
+# set turning at up to RESET_WARMUP_BOARD_SPEED (rad/s) per axis. The driver is an
+# Ornstein-Uhlenbeck process per axis, its std and time constant drawn per episode.
+RESET_WARMUP_FRACTION = 0.0
+RESET_WARMUP_STEPS = 5
+RESET_WARMUP_BOARD_SPEED = 1.0
+WARMUP_DRIVER_STD = (0.1, 1.0)
+WARMUP_DRIVER_TIME_CONSTANT_S = (0.1, 2.0)
+# Starts whose ball falls during the warm-up are discarded: 13% fall (25% of those near a
+# hole), so all of 4 candidates fall in about 0.03% of the resets.
+WARMUP_CANDIDATES = 4
 
 
 def hole_distance(ball, holes):
@@ -87,6 +100,9 @@ def default_config() -> config_dict.ConfigDict:
     config.reset_near_hole_fraction = RESET_NEAR_HOLE_FRACTION
     config.reset_near_hole_max = RESET_NEAR_HOLE_MAX
     config.reset_toward_hole_deg = RESET_TOWARD_HOLE_DEG
+    config.reset_warmup_fraction = RESET_WARMUP_FRACTION
+    config.reset_warmup_steps = RESET_WARMUP_STEPS
+    config.reset_warmup_board_speed = RESET_WARMUP_BOARD_SPEED
     return config
 
 
@@ -96,6 +112,8 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
     R is reached once the ball has stayed in it `recovery_hold_steps` steps in a row. The
     reward is the recovery reward, also in `state.info["recovery_reward"]` for the
     pessimistic critic, and only the recovery metrics are logged, not the maze's.
+    Episodes start from the sampler of `_initial_state`, a share of them moved on by a
+    generic driver (`reset_warmup_fraction`, see `_handover`).
     """
 
     def __init__(
@@ -129,6 +147,23 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
             raise ValueError(
                 f"reset_near_hole_max {self._near_hole_max} m is not above "
                 f"reset_hole_distance {self._reset_hole_distance} m"
+            )
+        self._warmup_fraction = get("reset_warmup_fraction")
+        self._warmup_steps = int(get("reset_warmup_steps"))
+        self._warmup_board_speed = get("reset_warmup_board_speed")
+        if not 0.0 <= self._warmup_fraction <= 1.0:
+            raise ValueError(
+                f"reset_warmup_fraction {self._warmup_fraction} is not in [0, 1]"
+            )
+        if self._warmup_fraction > 0.0 and self._warmup_steps < 1:
+            raise ValueError(f"reset_warmup_steps {self._warmup_steps} is below 1")
+        if self._warmup_fraction > 0.0:
+            # A new episode takes these from its handover start too.
+            self.episode_info_keys = (
+                *self.episode_info_keys,
+                "start_commands",
+                "start_delay",
+                "start_stuck",
             )
         # Height of the resting ball's centre above the board's origin.
         data = mujoco.MjData(self._mj_model)
@@ -206,8 +241,90 @@ class CyberRunnerRecovery(cyberrunner.CyberRunner):
         valid = inside & far & (gaps > 0.0)
         return jp.where(valid.any(), candidates[jp.argmax(valid)], fallback)
 
-    def reset(self, rng: jax.Array) -> mjx_env.State:
+    def _sampled_start(self, rng: jax.Array) -> mjx_env.State:
+        """A start of the sampler, no commands pending."""
         state = super().reset(rng)
+        info = state.info
+        return state.replace(
+            info={
+                "start_commands": jp.zeros_like(info["commands"]),
+                "start_delay": info["delay"],
+                "start_stuck": info["stuck"],
+                **info,
+            }
+        )
+
+    def _handover(self, rng: jax.Array) -> mjx_env.State:
+        """A share of the starts moved on by a generic driver, so that the episode starts
+        as after a handover: the board turning, the driver's commands pending and in the
+        history. These steps are not training transitions. Starts whose ball falls
+        meanwhile are discarded: of WARMUP_CANDIDATES sampled starts, the first that does
+        not fall is used (the sampled start only if all fall)."""
+        keys = jax.random.split(rng, WARMUP_CANDIDATES)
+        plain = jax.vmap(self._sampled_start)(keys)
+        warm, fell = jax.vmap(self._warm_up)(plain, keys)
+        kept = ~fell.any(-1)
+        use = (
+            jax.random.uniform(jax.random.fold_in(rng, 8)) < self._warmup_fraction
+        ) & kept.any()
+        index = jp.where(use, jp.argmax(kept), 0)
+        candidates = jax.tree.map(lambda w, p: jp.where(use, w, p), warm, plain)
+        return jax.tree.map(lambda x: x[index], candidates)
+
+    def _warm_up(
+        self, state: mjx_env.State, key: jax.Array
+    ) -> Tuple[mjx_env.State, jax.Array]:
+        """The start after the driver's steps, and whether the ball fell at each."""
+        k_speed, k_std, k_tau, k_first, k_drive = jax.random.split(
+            jax.random.fold_in(key, 7), 5
+        )
+        speed = self._warmup_board_speed
+        qvel = state.data.qvel.at[:2].set(
+            jax.random.uniform(k_speed, (2,), minval=-speed, maxval=speed)
+        )
+        low, high = WARMUP_DRIVER_STD
+        std = jax.random.uniform(k_std, (2,), minval=low, maxval=high)
+        low, high = np.log(WARMUP_DRIVER_TIME_CONSTANT_S)
+        tau = jp.exp(jax.random.uniform(k_tau, (2,), minval=low, maxval=high))
+        decay = jp.exp(-self.dt / tau)
+
+        def drive(carry, key):
+            state, command = carry
+            noise = jax.random.normal(key, (2,))
+            command = decay * command + std * jp.sqrt(1.0 - decay**2) * noise
+            # The maze's step: the recovery one would end the episode on R.
+            state = cyberrunner.CyberRunner.step(self, state, command)
+            return (state, command), violates(
+                self.ball_position(state.data), self._holes
+            )
+
+        first = std * jax.random.normal(k_first, (2,))
+        (warm, _), fell = jax.lax.scan(
+            drive,
+            (state.replace(data=state.data.replace(qvel=qvel)), first),
+            jax.random.split(k_drive, self._warmup_steps),
+        )
+        info = warm.info
+        warm = warm.replace(
+            info={
+                **info,
+                "start_history": info["history"],
+                "start_commands": info["commands"],
+                "start_delay": info["delay"],
+                "start_stuck": info["stuck"],
+            },
+            # The maze's reward and metrics of the last step are not the episode's.
+            reward=state.reward,
+            done=state.done,
+            metrics=state.metrics,
+        )
+        return warm, fell
+
+    def reset(self, rng: jax.Array) -> mjx_env.State:
+        if self._warmup_fraction > 0.0:
+            state = self._handover(rng)
+        else:
+            state = super().reset(rng)
         state.info["recovery_reward"] = jp.zeros(())
         state.info["recovery_hold"] = jp.zeros((), jp.int32)
         metrics = {"recovery/reached": jp.zeros(()), "recovery/violated": jp.zeros(())}

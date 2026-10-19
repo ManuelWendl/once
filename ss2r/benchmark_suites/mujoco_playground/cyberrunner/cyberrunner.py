@@ -71,7 +71,12 @@ class CyberRunner(mjx_env.MjxEnv):
 
     # Drawn at reset and used by step() for the whole episode, so a resampled reset
     # (ResampleAutoResetWrapper) must take them from the new initial state.
-    episode_info_keys = ("start_history", "start_progress", "bias_ball", "bias_joint")
+    episode_info_keys: Tuple[str, ...] = (
+        "start_history",
+        "start_progress",
+        "bias_ball",
+        "bias_joint",
+    )
 
     def __init__(
         self,
@@ -181,12 +186,16 @@ class CyberRunner(mjx_env.MjxEnv):
             new_episode, info["start_progress"], info["prev_progress"]
         )
         rng, k_noise = jax.random.split(info["rng"])
+        # An episode starts with a new delay, no pending commands and the ball loose,
+        # unless its initial state brings them (recovery handover starts).
         delay = jp.where(
             new_episode,
-            self._draw_delay(jax.random.fold_in(k_noise, 1)),
+            info.get("start_delay", self._draw_delay(jax.random.fold_in(k_noise, 1))),
             info["delay"],
         )
-        commands = jp.where(new_episode, 0.0, info["commands"])
+        commands = jp.where(
+            new_episode, info.get("start_commands", 0.0), info["commands"]
+        )
 
         action = jp.clip(action, -1.0, 1.0)
         action_rate = jp.sum((action - commands[0]) ** 2)
@@ -194,7 +203,7 @@ class CyberRunner(mjx_env.MjxEnv):
         kick = jp.zeros(3)
         if self._config.kick_accel > 0:
             kick = self._kick(info, new_episode, jax.random.fold_in(k_noise, 2))
-        stuck = jp.where(new_episode, False, info["stuck"])
+        stuck = jp.where(new_episode, info.get("start_stuck", False), info["stuck"])
         data, stuck = self._physics(state.data, commands, delay, kick, stuck)
 
         ball = self.ball_position(data)
