@@ -76,6 +76,9 @@ def make_learner(
     model_updates = c["model_grad_updates_per_step"]
     critic_updates = c["critic_grad_updates_per_step"]
     recovery_updates = c["recovery_grad_updates_per_step"]
+    # Learner steps in which Q_R stays the one of the prior, while the model
+    # learns. Its rollouts are not used for Q_R before.
+    recovery_q_warmup_steps = c.get("recovery_q_warmup_steps") or 0
     num_actor_updates = -(-critic_updates // c["num_critic_updates_per_actor_update"])
     num_task_transitions = c["num_model_rollouts"] * c["unroll_length"]
     if num_task_transitions < c["sac_batch_size"] * critic_updates:
@@ -581,19 +584,46 @@ def make_learner(
             recovery_rollout_state,
             key_recovery_rollout,
         )
-        recovery_buffer_state = ring_buffer.insert(
-            recovery_buffer_state, recovery_transitions
+        # The learner steps before this one: every learner step updates the
+        # task critic `critic_updates` times, this one included.
+        warm = (
+            training_state.gradient_steps // critic_updates - 1
+            >= recovery_q_warmup_steps
         )
-        recovery_transitions = ring_buffer.sample(
-            recovery_buffer_state,
-            key_recovery_sample,
-            c["recovery_batch_size"] * recovery_updates,
-        )
-        (training_state, _), recovery_metrics = jax.lax.scan(
-            recovery_critic_sgd_step,
-            (training_state, key_recovery),
-            split_batches(recovery_transitions, recovery_updates),
-        )
+        inserted = ring_buffer.insert(recovery_buffer_state, recovery_transitions)
+        if recovery_q_warmup_steps:
+            recovery_buffer_state = jax.tree_util.tree_map(
+                lambda new, old: jnp.where(warm, new, old),
+                inserted,
+                recovery_buffer_state,
+            )
+        else:
+            recovery_buffer_state = inserted
+
+        def update_recovery_q(training_state):
+            transitions = ring_buffer.sample(
+                recovery_buffer_state,
+                key_recovery_sample,
+                c["recovery_batch_size"] * recovery_updates,
+            )
+            (training_state, _), metrics = jax.lax.scan(
+                recovery_critic_sgd_step,
+                (training_state, key_recovery),
+                split_batches(transitions, recovery_updates),
+            )
+            return training_state, metrics
+
+        def keep_recovery_q(training_state):
+            return training_state, {
+                "recovery_critic_loss": jnp.zeros((recovery_updates,))
+            }
+
+        if recovery_q_warmup_steps:
+            training_state, recovery_metrics = jax.lax.cond(
+                warm, update_recovery_q, keep_recovery_q, training_state
+            )
+        else:
+            training_state, recovery_metrics = update_recovery_q(training_state)
         metrics = {
             **model_metrics,
             **critic_metrics,
