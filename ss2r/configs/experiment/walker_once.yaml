@@ -8,6 +8,10 @@ defaults:
 # in environment/walker_recovery.yaml and have to match the ones below.
 prior:
   experiment: walker_recovery_prior
+  # The prior of walker_once6 (seed 1), with which the online phase succeeds for
+  # most seeds. Relative to the directory train_once.py is started from. Set to
+  # null to train a new prior in the run.
+  checkpoint_path: priors/walker6_seed1
 
 training:
   # An environment step takes 0.025 seconds: 200000 steps are about 1.4 hours.

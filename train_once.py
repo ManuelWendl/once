@@ -48,12 +48,34 @@ def train_recovery_prior(prior_cfg, logger):
         eval_env=eval_env,
         progress_fn=functools.partial(report, logger, 0, "prior/"),
     )
+    upload_prior(logger)
     return params
+
+
+def upload_prior(logger):
+    """Uploads the last checkpoint of the prior, the one used online, as the
+    wandb artifact `checkpoint:<run id>`, as train_brax.py does. Later runs load
+    it with prior.wandb_id=<run id>."""
+    prior_dir = f"{get_state_path()}/prior"
+    steps = (
+        [d for d in os.listdir(prior_dir) if d.isdigit()]
+        if os.path.isdir(prior_dir)
+        else []
+    )
+    if not steps:
+        _LOG.warning("No checkpoint of the recovery prior to upload.")
+        return
+    logger.log_artifact(
+        os.path.join(prior_dir, max(steps, key=int)), "model", "checkpoint"
+    )
 
 
 def get_recovery_prior(cfg, prior_cfg, logger):
     if cfg.prior.checkpoint_path is not None:
-        return checkpoint.load(cfg.prior.checkpoint_path), 0
+        # Relative to the directory the run was started from, not to the
+        # directory of the run.
+        path = hydra.utils.to_absolute_path(cfg.prior.checkpoint_path)
+        return checkpoint.load(path), 0
     if cfg.prior.wandb_id is not None:
         path = get_wandb_checkpoint(cfg.prior.wandb_id, cfg.wandb.entity)
         return checkpoint.load(path), 0
