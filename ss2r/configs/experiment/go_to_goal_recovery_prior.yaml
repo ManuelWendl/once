@@ -25,7 +25,7 @@ agent:
     # The disagreement is dominated by the accelerometer and the gyro, which
     # differ between the perturbed models at every step (about 0.06 to 0.08
     # with lambda_ = 1, up to 0.35 when steering).
-    lambda_: 0.1
+    lambda_: 0.2
     alpha: 0.
     statistic: std
   reward_robustness:
