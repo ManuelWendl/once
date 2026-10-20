@@ -59,9 +59,6 @@ recovery_restart_rollouts: false
 recovery_batch_size: 256
 recovery_grad_updates_per_step: 10
 recovery_replay_size: 200000
-# Learner steps at the start in which Q_R stays the one of the prior and the
-# recovery rollouts are not stored, such that the model can learn first.
-recovery_q_warmup_steps: 0
 # Runtime.
 # Whether the actor runs in its own process, never waiting for the learner.
 asynchronous: true

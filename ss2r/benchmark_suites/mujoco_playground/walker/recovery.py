@@ -102,6 +102,9 @@ def default_config() -> config_dict.ConfigDict:
     # [low, high] for the hip, knee and ankle of both legs. `reset_standing_share`
     # of the starts are near standing instead, with `reset_standing_noise` on the
     # angles and velocities.
+    # Consecutive steps in R until the walker counts as recovered: 1 ends an
+    # episode on entering R, more also require staying in R.
+    config.recovery_dwell_steps = 1
     config.reset_joint_range = 0.8
     config.reset_pitch_rate = 3.0
     config.reset_forward_velocity = 2.0
@@ -112,6 +115,9 @@ def default_config() -> config_dict.ConfigDict:
 
 class WalkerRecovery(walker.PlanarWalker):
     """Walker that terminates when reaching R or falling over.
+
+    With `recovery_dwell_steps` > 1, reaching R means staying in R for that many
+    consecutive steps.
 
     `state.reward` remains the walk task reward. The recovery signal is written
     to `state.info["recovery_reward"]`.
@@ -133,6 +139,7 @@ class WalkerRecovery(walker.PlanarWalker):
         self._recovery_upright = get("recovery_upright")
         self._recovery_pitch_rate = get("recovery_pitch_rate")
         self._recovery_leg_upright = get("recovery_leg_upright")
+        self._recovery_dwell_steps = int(get("recovery_dwell_steps"))
         self._reset_joint_range = get("reset_joint_range")
         self._reset_pitch_rate = get("reset_pitch_rate")
         self._reset_forward_velocity = get("reset_forward_velocity")
@@ -237,24 +244,34 @@ class WalkerRecovery(walker.PlanarWalker):
         data = mjx_data.init(self.mjx_model, qpos=qpos, qvel=qvel)
         obs = self._get_obs(data, state.info)
         state.info["recovery_reward"] = jp.zeros(())
+        # Consecutive steps in R so far.
+        state.info["recovery_dwell"] = jp.zeros(())
         state.metrics["recovery/reached"] = jp.zeros(())
         state.metrics["recovery/violated"] = jp.zeros(())
         return state.replace(data=data, obs=obs)
 
     def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
+        dwell = state.info["recovery_dwell"]
+        # The auto reset does not reset the info: a new episode starts with
+        # zero steps.
+        if "steps" in state.info:
+            dwell = jp.where(state.info["steps"] == 0, 0.0, dwell)
         nstate = super().step(state, action)
         violated = violates(nstate.obs, self._hard_upright)
-        recovery_reward = recovery_reward_fn(
+        inside = recovery_reward_fn(
             nstate.obs,
             self._recovery_upright,
             self._recovery_pitch_rate,
             self._hard_upright,
             self._recovery_leg_upright,
         )
+        dwell = jp.where(inside > 0.0, dwell + 1.0, 0.0)
+        recovery_reward = (dwell >= self._recovery_dwell_steps).astype(jp.float32)
+        terminate = (recovery_reward > 0.0) | violated
+        nstate.info["recovery_dwell"] = jp.where(terminate, 0.0, dwell)
         nstate.info["recovery_reward"] = recovery_reward
         nstate.metrics["recovery/reached"] = recovery_reward
         nstate.metrics["recovery/violated"] = violated.astype(jp.float32)
-        terminate = (recovery_reward > 0.0) | violated
         done = jp.maximum(nstate.done, terminate.astype(nstate.done.dtype))
         return nstate.replace(done=done)
 

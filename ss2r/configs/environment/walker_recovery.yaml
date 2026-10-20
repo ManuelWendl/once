@@ -16,6 +16,9 @@ task_params:
   # Hard constraint: the walker falls over when its torso tilts by more than 60
   # degrees.
   hard_upright: 0.5
+  # Consecutive steps in R until the walker counts as recovered. 1 ends an
+  # episode on entering R; more also require staying in R.
+  recovery_dwell_steps: 10
   # Initial states, fitted to the states of walking (policies that learned to
   # walk without a filter, 0.5% to 99.5% quantiles with a small margin), such
   # that the recovery prior also learns to recover from walking, without the
