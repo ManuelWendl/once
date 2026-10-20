@@ -5,9 +5,9 @@ task_params:
   ctrl_dt: 0.025
   sim_dt: 0.0025
   # Safe operable region R.
-  recovery_upright: 0.95
-  recovery_leg_upright: 0.95
-  recovery_pitch_rate: 0.5
+  recovery_upright: 0.9
+  recovery_leg_upright: 0.9
+  recovery_pitch_rate: 1.0
   # Hard constraint on the uprightness of the torso.
   hard_upright: 0.5
 
