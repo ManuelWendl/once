@@ -14,7 +14,7 @@ training:
 
 agent:
   discounting: 0.95
-  num_critic_updates_per_actor_update: 2
+  num_critic_updates_per_actor_update: 1
   optimism: 0.05
   # The task reward is the progress towards the goal, at most 0.12 per step.
   intervention_task_reward: -0.2
@@ -22,6 +22,5 @@ agent:
   # Horizon of go_to_goal_recovery_prior.
   recovery_horizon: 25
   recovery_restart_rollouts: true
-  pessimistic_q: true
   init_normalizer_from_prior: true
   init_behavior_from_prior: true
