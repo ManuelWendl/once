@@ -13,11 +13,10 @@ training:
   action_repeat: 4
 
 agent:
-  discounting: 0.95
   num_critic_updates_per_actor_update: 1
-  optimism: 0.001
+  optimism: 0.05
   # The task reward is the progress towards the goal, at most 0.12 per step.
-  intervention_task_reward: -0.2
+  intervention_task_reward: 0.0
   recovery_threshold: 0.95
   # Horizon of go_to_goal_recovery_prior.
   recovery_horizon: 25
