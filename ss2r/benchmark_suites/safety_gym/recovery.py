@@ -28,6 +28,11 @@ HARD_DISTANCE = 0.35
 # that it can always stop inside of the buffer.
 RECOVERY_DISTANCE = 0.5
 RECOVERY_SPEED = 0.5
+# Leaving the arena: the arena has no walls, and beyond the range of the lidar
+# the robot sees neither the obstacles nor the goal. The observation has no
+# absolute position, so leaving is detected as being farther than this from
+# every obstacle; off (None) by default.
+MAX_DISTANCE = None
 # The nominal robot reaches 1.5 m/s and 3 rad/s.
 RESET_SPEED = 1.5
 RESET_ANGULAR_VELOCITY = 3.0
@@ -47,19 +52,35 @@ def speed(obs):
     return (obs[..., _VELOCIMETER] ** 2).sum(axis=-1) ** 0.5
 
 
-def violates(obs, hard_distance: float = HARD_DISTANCE):
-    """Whether the hard constraint on the distance to the obstacles is violated."""
-    return obstacle_distance(obs) < hard_distance
+def out_of_arena(obs, max_distance: float | None = MAX_DISTANCE):
+    """Whether the robot left the arena: no obstacle within `max_distance`."""
+    if max_distance is None:
+        # Never: the distance saturates at the range of the lidar.
+        return obstacle_distance(obs) > lidar.LIDAR_MAX_DIST
+    return obstacle_distance(obs) >= max_distance
+
+
+def violates(
+    obs,
+    hard_distance: float = HARD_DISTANCE,
+    max_distance: float | None = MAX_DISTANCE,
+):
+    """Whether the hard constraint on the distance to the obstacles is violated:
+    too close to an obstacle or, with `max_distance`, out of the arena."""
+    return (obstacle_distance(obs) < hard_distance) | out_of_arena(obs, max_distance)
 
 
 def in_recovery_set(
     obs,
     recovery_distance: float = RECOVERY_DISTANCE,
     recovery_speed: float = RECOVERY_SPEED,
+    max_distance: float | None = MAX_DISTANCE,
 ):
     """Whether the robot is in the safe operable region R."""
-    return (obstacle_distance(obs) >= recovery_distance) & (
-        speed(obs) <= recovery_speed
+    return (
+        (obstacle_distance(obs) >= recovery_distance)
+        & (speed(obs) <= recovery_speed)
+        & ~out_of_arena(obs, max_distance)
     )
 
 
@@ -68,10 +89,11 @@ def recovery_reward_fn(
     recovery_distance: float = RECOVERY_DISTANCE,
     recovery_speed: float = RECOVERY_SPEED,
     hard_distance: float = HARD_DISTANCE,
+    max_distance: float | None = MAX_DISTANCE,
 ):
     """1 if the robot entered R, 0 otherwise. Not to be mixed with the task reward."""
-    reached = in_recovery_set(next_obs, recovery_distance, recovery_speed)
-    reached = reached & ~violates(next_obs, hard_distance)
+    reached = in_recovery_set(next_obs, recovery_distance, recovery_speed, max_distance)
+    reached = reached & ~violates(next_obs, hard_distance, max_distance)
     return reached.astype("float32")
 
 
@@ -91,6 +113,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         recovery_distance: float = RECOVERY_DISTANCE,
         recovery_speed: float = RECOVERY_SPEED,
         hard_distance: float = HARD_DISTANCE,
+        max_distance: float | None = MAX_DISTANCE,
         reset_speed: float = RESET_SPEED,
         reset_angular_velocity: float = RESET_ANGULAR_VELOCITY,
         **kwargs,
@@ -99,6 +122,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         self._recovery_distance = recovery_distance
         self._recovery_speed = recovery_speed
         self._hard_distance = hard_distance
+        self._max_distance = max_distance
         self._reset_speed = reset_speed
         self._reset_angular_velocity = reset_angular_velocity
         # Start as close to the obstacles as the hard constraint allows.
@@ -148,12 +172,13 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
 
     def step(self, state: go_to_goal.State, action: jax.Array) -> go_to_goal.State:
         nstate = super().step(state, action)
-        violated = violates(nstate.obs, self._hard_distance)
+        violated = violates(nstate.obs, self._hard_distance, self._max_distance)
         recovery_reward = recovery_reward_fn(
             nstate.obs,
             self._recovery_distance,
             self._recovery_speed,
             self._hard_distance,
+            self._max_distance,
         )
         nstate.info["recovery_reward"] = recovery_reward
         nstate.metrics["recovery/reached"] = recovery_reward

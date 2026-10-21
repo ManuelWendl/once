@@ -122,9 +122,9 @@ class _AsyncActor:
         # learner for the accelerator.
         actor_environ = {"JAX_PLATFORMS": "cpu"}
         if self._single_threaded:
-            actor_environ[
-                "XLA_FLAGS"
-            ] = "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+            actor_environ["XLA_FLAGS"] = (
+                "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+            )
         previous = {name: os.environ.get(name) for name in actor_environ}
         os.environ.update(actor_environ)
         try:
@@ -338,6 +338,7 @@ def train(
     learner_steps = 0
     violations = 0.0
     costs = 0.0
+    out_of_arena = 0.0
     next_log = log_every
     window: dict[str, float] = {}
     window_learner_steps = 0
@@ -360,6 +361,7 @@ def train(
                 env_steps += c["chunk_size"] * action_repeat
                 violations += stats["violations"]
                 costs += stats.get("cost", 0.0)
+                out_of_arena += stats.get("out_of_arena", 0.0)
                 for name, value in stats.items():
                     if name == "max_step_time":
                         window[name] = max(window.get(name, 0.0), value)
@@ -414,6 +416,9 @@ def train(
                 if "cost" in window:
                     # Environment steps with a cost, for environments with one.
                     metrics["online/costs"] = costs
+                if "out_of_arena" in window:
+                    # The violations by leaving the arena, counted from the start.
+                    metrics["online/out_of_arena"] = out_of_arena
                 logging.info(metrics)
                 progress_fn(env_steps, metrics)
                 save(env_steps)

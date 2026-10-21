@@ -13,13 +13,18 @@ training:
   action_repeat: 4
 
 agent:
+  # The settings of gtg_sombrl2 (commit 5b2dd35), in which 2 of 5 seeds learned
+  # the task. For the SOMBRL baseline, add agent.recovery_threshold=-1e6.
+  discounting: 0.95
   num_critic_updates_per_actor_update: 1
   optimism: 0.05
   # The task reward is the progress towards the goal, at most 0.12 per step.
-  intervention_task_reward: 0.0
+  intervention_task_reward: -0.2
+  critic_learning_rate: 1e-4
+  min_alpha: 0.01
   recovery_threshold: 0.95
   # Horizon of go_to_goal_recovery_prior.
   recovery_horizon: 25
   recovery_restart_rollouts: true
   init_normalizer_from_prior: true
-  init_behavior_from_prior: true
+  init_behavior_from_prior: false

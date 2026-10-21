@@ -53,10 +53,12 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
             recovery_distance=task_params["recovery_distance"],
             recovery_speed=task_params["recovery_speed"],
             hard_distance=task_params["hard_distance"],
+            max_distance=task_params.get("max_distance"),
         )
         violates_fn = functools.partial(
             go_to_goal_recovery.violates,
             hard_distance=task_params["hard_distance"],
+            max_distance=task_params.get("max_distance"),
         )
     elif task_name == "WalkerWalkCPU":
         recovery_reward_fn = functools.partial(

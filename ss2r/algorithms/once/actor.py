@@ -144,6 +144,10 @@ class Actor:
         stats["in_recovery_set"] += float(info["in_recovery_set"])
         if "cost" in info:
             stats["cost"] = stats.get("cost", 0.0) + float(info["cost"])
+        if "out_of_arena" in info:
+            stats["out_of_arena"] = stats.get("out_of_arena", 0.0) + float(
+                info["out_of_arena"]
+            )
         if terminated:
             # The hard constraint was violated, the system has to be reset.
             stats["violations"] += 1
