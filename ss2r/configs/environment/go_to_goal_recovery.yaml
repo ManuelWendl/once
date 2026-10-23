@@ -14,9 +14,9 @@ task_params:
   # Hard constraint on the distance.
   hard_distance: 0.35
   # Leaving the arena as a violation: no obstacle within this distance (the
-  # observation has no absolute position). Off (null); 2.5 is almost never
-  # reached inside of the arena and about 1.75 m beyond its edge.
-  max_distance: null
+  # observation has no absolute position). 2.5 is almost never reached inside
+  # of the arena and about 1.75 m beyond its edge.
+  max_distance: 2.5
   # The nominal robot reaches 1.5 m/s and 3 rad/s.
   reset_speed: 1.5
   reset_angular_velocity: 3.0

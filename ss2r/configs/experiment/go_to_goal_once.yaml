@@ -6,15 +6,25 @@ defaults:
 
 prior:
   experiment: go_to_goal_recovery_prior
+  # Trained with leaving the arena as a violation (margin 0.1), and checked with
+  # plotting/probe_gtg_prior.py --avoid: at a threshold of 0.9 it blocks about
+  # 15% of the actions of a sensible goal seeking controller. Set to null to
+  # train a new prior in the run.
+  wandb_id: fbhat9kt
 
 training:
   # An environment step takes 0.02 seconds: 500000 steps are about 2.8 hours.
   num_timesteps: 500000
   action_repeat: 4
 
+environment:
+  task_params:
+    # Leaving the arena is a violation and resets the robot. Without it the
+    # robot can get lost outside of the range of the lidar.
+    max_distance: 2.5
+
 agent:
-  # The settings of gtg_sombrl2 (commit 5b2dd35), in which 2 of 5 seeds learned
-  # the task. For the SOMBRL baseline, add agent.recovery_threshold=-1e6.
+  # For the SOMBRL baseline, add agent.recovery_threshold=-1e6.
   discounting: 0.95
   num_critic_updates_per_actor_update: 1
   optimism: 0.05
@@ -22,9 +32,14 @@ agent:
   intervention_task_reward: -0.2
   critic_learning_rate: 1e-4
   min_alpha: 0.01
-  recovery_threshold: 0.95
+  recovery_threshold: 0.9
+  # Matched to the disagreement of the learned model online (about 0.1), such
+  # that the filter does not lock up.
+  margin: 0.1
+  penalty_scale: 0.2
   # Horizon of go_to_goal_recovery_prior.
   recovery_horizon: 25
   recovery_restart_rollouts: true
+  # Without the statistics of the prior, the model can get stuck at the start.
+  init_normalizer_from_prior: true
   init_behavior_from_prior: false
-  
