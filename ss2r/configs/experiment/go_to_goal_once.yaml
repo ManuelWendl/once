@@ -26,5 +26,5 @@ agent:
   # Horizon of go_to_goal_recovery_prior.
   recovery_horizon: 25
   recovery_restart_rollouts: true
-  init_normalizer_from_prior: true
   init_behavior_from_prior: false
+  

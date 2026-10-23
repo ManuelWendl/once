@@ -76,6 +76,9 @@ def make_learner(
     model_updates = c["model_grad_updates_per_step"]
     critic_updates = c["critic_grad_updates_per_step"]
     recovery_updates = c["recovery_grad_updates_per_step"]
+    # In the task model rollouts, an intervention executes the action of the
+    # prior and continues, instead of terminating the rollout.
+    intervention_continue = c.get("intervention_continue", False)
     num_actor_updates = -(-critic_updates // c["num_critic_updates_per_actor_update"])
     num_task_transitions = c["num_model_rollouts"] * c["unroll_length"]
     if num_task_transitions < c["sac_batch_size"] * critic_updates:
@@ -297,9 +300,6 @@ def make_learner(
                 obs,
             )
             action = action_distribution.sample(logits, key_action)
-            next_obs_mean, next_obs_sample, reward, disagreement = predict(
-                training_state, obs, action, key_model
-            )
             q_r = recovery_q_network.apply(
                 training_state.recovery_normalizer_params,
                 training_state.recovery_q_params,
@@ -307,14 +307,41 @@ def make_learner(
                 action,
             ).mean(axis=-1)
             # The recovery prior takes over when it might not be able to recover
-            # anymore. The behavior gets the worst task reward and terminates.
+            # anymore.
             intervention = q_r < recovery_threshold
-            terminated = intervention | violates_fn(next_obs_mean)
-            task_reward = jnp.where(
-                terminated,
-                c["intervention_task_reward"],
-                reward + c["optimism"] * disagreement,
-            )
+            if intervention_continue:
+                # As on the system: the action of the prior is executed and the
+                # rollout continues. The behavior gets the intervention task
+                # reward on top, and terminates only on a violation.
+                prior_logits = recovery_policy_network.apply(
+                    training_state.recovery_normalizer_params,
+                    training_state.recovery_policy_params,
+                    obs,
+                )
+                prior_action = recovery_action_distribution.mode(prior_logits)
+                executed = jnp.where(intervention[:, None], prior_action, action)
+                next_obs_mean, next_obs_sample, reward, disagreement = predict(
+                    training_state, obs, executed, key_model
+                )
+                terminated = violates_fn(next_obs_mean)
+                task_reward = jnp.where(
+                    terminated,
+                    c["intervention_task_reward"],
+                    reward
+                    + c["optimism"] * disagreement
+                    + intervention * c["intervention_task_reward"],
+                )
+            else:
+                next_obs_mean, next_obs_sample, reward, disagreement = predict(
+                    training_state, obs, action, key_model
+                )
+                # The behavior gets the worst task reward and terminates.
+                terminated = intervention | violates_fn(next_obs_mean)
+                task_reward = jnp.where(
+                    terminated,
+                    c["intervention_task_reward"],
+                    reward + c["optimism"] * disagreement,
+                )
             transitions = Transition(
                 observation=obs,
                 action=action,

@@ -42,6 +42,10 @@ optimism: 0.
 # Task reward given to the behavior when the recovery prior takes over (the
 # worst reward of the environment).
 intervention_task_reward: 0.
+# In the task model rollouts, an intervention executes the action of the prior
+# and the rollout continues, with intervention_task_reward added, as on the
+# system. False: the rollout terminates with intervention_task_reward.
+intervention_continue: false
 # Recovery prior.
 # The behavior action is only taken if Q_R(s, a) >= recovery_threshold.
 recovery_threshold: 0.99
