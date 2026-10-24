@@ -6,11 +6,10 @@ defaults:
 
 prior:
   experiment: go_to_goal_recovery_prior
-  # Trained with leaving the arena as a violation (margin 0.1), and checked with
-  # plotting/probe_gtg_prior.py --avoid: at a threshold of 0.9 it blocks about
-  # 15% of the actions of a sensible goal seeking controller. Set to null to
-  # train a new prior in the run.
-  wandb_id: fbhat9kt
+  # The last prior (fbhat9kt) was trained before stable_steering, on a robot
+  # that ignores small steering commands. Null trains a new prior in the run;
+  # set the id of one trained with stable_steering to reuse it.
+  wandb_id: null
 
 training:
   # An environment step takes 0.02 seconds: 500000 steps are about 2.8 hours.
@@ -33,9 +32,11 @@ agent:
   critic_learning_rate: 1e-4
   min_alpha: 0.01
   recovery_threshold: 0.9
-  # Matched to the disagreement of the learned model online (about 0.1), such
-  # that the filter does not lock up.
-  margin: 0.1
+  # Matched to the disagreement of the learned model online, such that the
+  # filter does not lock up. It was about 0.1 before stable_steering, which
+  # lowers the disagreement of the model to about 0.35x (trained on the same
+  # random-action data of the system, before and after).
+  margin: 0.035
   penalty_scale: 0.2
   # Horizon of go_to_goal_recovery_prior.
   recovery_horizon: 25

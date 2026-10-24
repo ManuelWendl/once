@@ -88,6 +88,7 @@ class GoToGoalCPU:
         recovery_speed: float = recovery.RECOVERY_SPEED,
         hard_distance: float = recovery.HARD_DISTANCE,
         max_distance: float | None = recovery.MAX_DISTANCE,
+        stable_steering: bool = False,
         action_repeat: int = 1,
         real_params: Mapping[str, Any] | None = None,
         seed: int = 0,
@@ -96,6 +97,8 @@ class GoToGoalCPU:
         self._goal_size = goal_size
         self._spec = go_to_goal.make_objects_spec(num_hazards, num_vases, goal_size)
         mj_spec = mujoco.MjSpec.from_file(filename=str(go_to_goal._XML_PATH), assets={})
+        if stable_steering:
+            go_to_goal.stabilize_steering(mj_spec)
         go_to_goal.build_arena(
             mj_spec, layout=_sample_layout(self._rng, self._spec), goal_size=goal_size
         )

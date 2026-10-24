@@ -32,6 +32,19 @@ _EXTENTS = (-2.0, -2.0, 2.0, 2.0)
 _ROBOT_ID = 1
 
 
+def stabilize_steering(spec: mj.MjSpec) -> None:
+    """Makes the robot turn as commanded, with a gyro that reads its turn rate.
+
+    With the Euler integrator at a timestep of 0.01, the steering velocity servo
+    chatters between its force limits: steering commands below about 0.4 (gear
+    0.3, up to 0.7 at gear 0.4) do not turn the robot, and the gyro reads about
+    1.5 rad/s while it does not turn. `implicitfast` integrates the servo
+    implicitly, which requires the servo not to be force limited.
+    """
+    spec.option.integrator = mj.mjtIntegrator.mjINT_IMPLICITFAST
+    spec.actuator("z").forcelimited = mj.mjtLimited.mjLIMITED_FALSE
+
+
 def domain_randomization(sys, rng, cfg):
     @jax.vmap
     def randomize(rng):
@@ -207,10 +220,13 @@ class GoToGoal(mjx_env.MjxEnv):
         num_hazards: int = 10,
         num_vases: int = 10,
         goal_size: float = 0.3,
+        stable_steering: bool = False,
     ):
         self.goal_size = goal_size
         self.spec = make_objects_spec(num_hazards, num_vases, goal_size)
         mj_spec: mj.MjSpec = mj.MjSpec.from_file(filename=str(_XML_PATH), assets={})
+        if stable_steering:
+            stabilize_steering(mj_spec)
         layout = _sample_layout(jax.random.PRNGKey(seed), self.spec)
         build_arena(
             mj_spec, layout=layout, visualize=visualize_lidar, goal_size=goal_size

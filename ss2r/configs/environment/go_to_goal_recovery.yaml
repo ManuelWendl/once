@@ -20,6 +20,9 @@ task_params:
   # The nominal robot reaches 1.5 m/s and 3 rad/s.
   reset_speed: 1.5
   reset_angular_velocity: 3.0
+  # Steering that follows the command (see go_to_goal.stabilize_steering).
+  # Without it, small steering commands do not turn the robot.
+  stable_steering: true
 
 # The horizon is a true terminal state (no bootstrapping).
 terminate_on_timeout: true

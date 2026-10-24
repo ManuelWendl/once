@@ -15,6 +15,9 @@ task_params:
   # observation has no absolute position). Off (null); 2.5 is almost never
   # reached inside of the arena and about 1.75 m beyond its edge.
   max_distance: null
+  # Steering that follows the command, as in go_to_goal_recovery (see
+  # go_to_goal.stabilize_steering).
+  stable_steering: true
 
 # Changes of the nominal model, playing the role of the sim-to-real gap.
 # Damping and mass are scaled, the gears are offset.

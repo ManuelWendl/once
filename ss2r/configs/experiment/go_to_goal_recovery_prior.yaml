@@ -22,13 +22,17 @@ agent:
   discounting: 1.0
   propagation:
     num_envs: 8
-    # The disagreement is dominated by the accelerometer and the gyro, which
-    # differ between the perturbed models at every step (about 0.06 to 0.08
-    # with lambda_ = 1, up to 0.35 when steering).
+    # With stable_steering, the disagreement (lambda_ = 1) comes from the
+    # randomized gears: 0 when coasting, 0.032 when braking straight (thrust),
+    # 0.009 to 0.031 when steering from 0.3 to 1, 0.046 (p90 0.058) for random
+    # actions. Before, the chattering steering made it 0.06 when coasting and
+    # up to 0.3 when steering.
     lambda_: 0.2
     alpha: 0.
     statistic: std
   reward_robustness:
     penalty_scale: 1.0
-    # Slightly above the disagreement of coasting and braking straight.
-    margin: 0.01
+    # Slightly above the disagreement of coasting and braking straight:
+    # 0.035 * lambda_. Braking and steering alone are not penalized, combined
+    # thrust and steering slightly.
+    margin: 0.007
