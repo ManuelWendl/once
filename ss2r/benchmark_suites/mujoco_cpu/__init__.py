@@ -54,6 +54,7 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
             recovery_speed=task_params["recovery_speed"],
             hard_distance=task_params["hard_distance"],
             max_distance=task_params.get("max_distance"),
+            recovery_max_distance=task_params.get("recovery_max_distance"),
         )
         violates_fn = functools.partial(
             go_to_goal_recovery.violates,

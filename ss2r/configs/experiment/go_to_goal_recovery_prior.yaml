@@ -22,11 +22,12 @@ agent:
   discounting: 1.0
   propagation:
     num_envs: 8
-    # With stable_steering, the disagreement (lambda_ = 1) comes from the
-    # randomized gears: 0 when coasting, 0.032 when braking straight (thrust),
-    # 0.009 to 0.031 when steering from 0.3 to 1, 0.046 (p90 0.058) for random
-    # actions. Before, the chattering steering made it 0.06 when coasting and
-    # up to 0.3 when steering.
+    # With stable_steering and linear_thrust, the disagreement (lambda_ = 1)
+    # comes from the randomized gears: 0 when coasting, up to 0.032 when
+    # braking straight (median 0.001, at full thrust 0.032), 0.009 to 0.031
+    # when steering from 0.3 to 1, 0.031 (p90 0.048) for random actions.
+    # Before, the chattering steering made it 0.06 when coasting and up to 0.3
+    # when steering.
     lambda_: 0.2
     alpha: 0.
     statistic: std
@@ -34,5 +35,5 @@ agent:
     penalty_scale: 1.0
     # Slightly above the disagreement of coasting and braking straight:
     # 0.035 * lambda_. Braking and steering alone are not penalized, combined
-    # thrust and steering slightly.
+    # thrust and steering above average slightly.
     margin: 0.007

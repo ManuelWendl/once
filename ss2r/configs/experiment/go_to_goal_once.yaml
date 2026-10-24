@@ -6,9 +6,10 @@ defaults:
 
 prior:
   experiment: go_to_goal_recovery_prior
-  # The last prior (fbhat9kt) was trained before stable_steering, on a robot
-  # that ignores small steering commands. Null trains a new prior in the run;
-  # set the id of one trained with stable_steering to reuse it.
+  # Priors have to be trained with the robot and R of go_to_goal_recovery:
+  # fbhat9kt predates stable_steering, the priors of gtg_once_stable (e.g.
+  # hdstt6hw) predate linear_thrust and recovery_max_distance. Null trains a
+  # new prior in the run; set the id of a matching one to reuse it.
   wandb_id: null
 
 training:
@@ -21,6 +22,8 @@ environment:
     # Leaving the arena is a violation and resets the robot. Without it the
     # robot can get lost outside of the range of the lidar.
     max_distance: 2.5
+    # The buffer of R to leaving the arena, as in go_to_goal_recovery.
+    recovery_max_distance: 2.2
 
 agent:
   # For the SOMBRL baseline, add agent.recovery_threshold=-1e6.

@@ -33,6 +33,9 @@ RECOVERY_SPEED = 0.5
 # absolute position, so leaving is detected as being farther than this from
 # every obstacle; off (None) by default.
 MAX_DISTANCE = None
+# R requires an obstacle within this distance: a buffer to leaving the arena,
+# as RECOVERY_DISTANCE is to the hard constraint. Off (None) by default.
+RECOVERY_MAX_DISTANCE = None
 # The nominal robot reaches 1.5 m/s and 3 rad/s.
 RESET_SPEED = 1.5
 RESET_ANGULAR_VELOCITY = 3.0
@@ -75,13 +78,17 @@ def in_recovery_set(
     recovery_distance: float = RECOVERY_DISTANCE,
     recovery_speed: float = RECOVERY_SPEED,
     max_distance: float | None = MAX_DISTANCE,
+    recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
 ):
     """Whether the robot is in the safe operable region R."""
-    return (
+    inside = (
         (obstacle_distance(obs) >= recovery_distance)
         & (speed(obs) <= recovery_speed)
         & ~out_of_arena(obs, max_distance)
     )
+    if recovery_max_distance is not None:
+        inside = inside & (obstacle_distance(obs) <= recovery_max_distance)
+    return inside
 
 
 def recovery_reward_fn(
@@ -90,9 +97,12 @@ def recovery_reward_fn(
     recovery_speed: float = RECOVERY_SPEED,
     hard_distance: float = HARD_DISTANCE,
     max_distance: float | None = MAX_DISTANCE,
+    recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
 ):
     """1 if the robot entered R, 0 otherwise. Not to be mixed with the task reward."""
-    reached = in_recovery_set(next_obs, recovery_distance, recovery_speed, max_distance)
+    reached = in_recovery_set(
+        next_obs, recovery_distance, recovery_speed, max_distance, recovery_max_distance
+    )
     reached = reached & ~violates(next_obs, hard_distance, max_distance)
     return reached.astype("float32")
 
@@ -114,6 +124,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         recovery_speed: float = RECOVERY_SPEED,
         hard_distance: float = HARD_DISTANCE,
         max_distance: float | None = MAX_DISTANCE,
+        recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
         reset_speed: float = RESET_SPEED,
         reset_angular_velocity: float = RESET_ANGULAR_VELOCITY,
         **kwargs,
@@ -123,6 +134,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         self._recovery_speed = recovery_speed
         self._hard_distance = hard_distance
         self._max_distance = max_distance
+        self._recovery_max_distance = recovery_max_distance
         self._reset_speed = reset_speed
         self._reset_angular_velocity = reset_angular_velocity
         # Start as close to the obstacles as the hard constraint allows.
@@ -179,6 +191,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             self._recovery_speed,
             self._hard_distance,
             self._max_distance,
+            self._recovery_max_distance,
         )
         nstate.info["recovery_reward"] = recovery_reward
         nstate.metrics["recovery/reached"] = recovery_reward

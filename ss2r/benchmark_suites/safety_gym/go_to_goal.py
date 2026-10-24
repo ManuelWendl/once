@@ -45,6 +45,16 @@ def stabilize_steering(spec: mj.MjSpec) -> None:
     spec.actuator("z").forcelimited = mj.mjtLimited.mjLIMITED_FALSE
 
 
+def linearize_thrust(spec: mj.MjSpec) -> None:
+    """Makes the thrust proportional to its command.
+
+    The motor reaches its force limit of 0.05 at a command of 0.05, such that
+    95% of the command range gives the same force. With a gain of 0.05, the
+    command range maps linearly to the same force range.
+    """
+    spec.actuator("x").gainprm[0] = 0.05
+
+
 def domain_randomization(sys, rng, cfg):
     @jax.vmap
     def randomize(rng):
@@ -221,12 +231,15 @@ class GoToGoal(mjx_env.MjxEnv):
         num_vases: int = 10,
         goal_size: float = 0.3,
         stable_steering: bool = False,
+        linear_thrust: bool = False,
     ):
         self.goal_size = goal_size
         self.spec = make_objects_spec(num_hazards, num_vases, goal_size)
         mj_spec: mj.MjSpec = mj.MjSpec.from_file(filename=str(_XML_PATH), assets={})
         if stable_steering:
             stabilize_steering(mj_spec)
+        if linear_thrust:
+            linearize_thrust(mj_spec)
         layout = _sample_layout(jax.random.PRNGKey(seed), self.spec)
         build_arena(
             mj_spec, layout=layout, visualize=visualize_lidar, goal_size=goal_size

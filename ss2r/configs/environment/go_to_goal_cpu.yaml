@@ -18,6 +18,9 @@ task_params:
   # Steering that follows the command, as in go_to_goal_recovery (see
   # go_to_goal.stabilize_steering).
   stable_steering: true
+  # Thrust proportional to the command, as in go_to_goal_recovery (see
+  # go_to_goal.linearize_thrust).
+  linear_thrust: true
 
 # Changes of the nominal model, playing the role of the sim-to-real gap.
 # Damping and mass are scaled, the gears are offset.

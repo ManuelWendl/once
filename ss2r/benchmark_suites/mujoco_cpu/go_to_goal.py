@@ -88,7 +88,9 @@ class GoToGoalCPU:
         recovery_speed: float = recovery.RECOVERY_SPEED,
         hard_distance: float = recovery.HARD_DISTANCE,
         max_distance: float | None = recovery.MAX_DISTANCE,
+        recovery_max_distance: float | None = recovery.RECOVERY_MAX_DISTANCE,
         stable_steering: bool = False,
+        linear_thrust: bool = False,
         action_repeat: int = 1,
         real_params: Mapping[str, Any] | None = None,
         seed: int = 0,
@@ -99,6 +101,8 @@ class GoToGoalCPU:
         mj_spec = mujoco.MjSpec.from_file(filename=str(go_to_goal._XML_PATH), assets={})
         if stable_steering:
             go_to_goal.stabilize_steering(mj_spec)
+        if linear_thrust:
+            go_to_goal.linearize_thrust(mj_spec)
         go_to_goal.build_arena(
             mj_spec, layout=_sample_layout(self._rng, self._spec), goal_size=goal_size
         )
@@ -111,6 +115,7 @@ class GoToGoalCPU:
         self._recovery_speed = recovery_speed
         self._hard_distance = hard_distance
         self._max_distance = max_distance
+        self._recovery_max_distance = recovery_max_distance
         self._robot_body_id = model.body("robot").id
         self._robot_geom_ids = {model.geom("robot").id, model.geom("pointarrow").id}
         self._robot_qpos_ids = go_to_goal._get_qpos_ids(model, ["x", "y", "z"])
@@ -236,6 +241,7 @@ class GoToGoalCPU:
                     self._recovery_distance,
                     self._recovery_speed,
                     self._max_distance,
+                    self._recovery_max_distance,
                 )
             ),
             "cost": cost,

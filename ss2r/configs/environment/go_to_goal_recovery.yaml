@@ -17,12 +17,19 @@ task_params:
   # observation has no absolute position). 2.5 is almost never reached inside
   # of the arena and about 1.75 m beyond its edge.
   max_distance: 2.5
+  # R requires an obstacle within this distance: a buffer of 0.3 to leaving the
+  # arena, more than the 0.25 that the robot coasts from 0.5 m/s. On average,
+  # 0.3% of the arena is farther from every obstacle (at most 8%).
+  recovery_max_distance: 2.2
   # The nominal robot reaches 1.5 m/s and 3 rad/s.
   reset_speed: 1.5
   reset_angular_velocity: 3.0
   # Steering that follows the command (see go_to_goal.stabilize_steering).
   # Without it, small steering commands do not turn the robot.
   stable_steering: true
+  # Thrust proportional to the command (see go_to_goal.linearize_thrust).
+  # Without it, every command above 0.05 gives the full force.
+  linear_thrust: true
 
 # The horizon is a true terminal state (no bootstrapping).
 terminate_on_timeout: true
