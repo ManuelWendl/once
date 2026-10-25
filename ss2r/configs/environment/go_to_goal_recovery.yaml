@@ -26,6 +26,12 @@ task_params:
   # layout starts the robot close to the obstacles, and a prior trained only
   # from there drives out of the arena from 40% of these states.
   far_start_prob: 0.2
+  # Share of the other episodes that start inside of R close to the obstacles,
+  # from recovery_distance to 0.3 beyond it, slow and not rotating (0.25 of the
+  # others: 20% of all episodes). The prior parks the robot there after
+  # recovering, and without these starts its Q_R was below 0.9 for every action
+  # at 11% of the parking spots 0.5-0.6 from an obstacle, deadlocking the filter.
+  near_start_prob: 0.25
   # The nominal robot reaches 1.5 m/s and 3 rad/s.
   reset_speed: 1.5
   reset_angular_velocity: 3.0
