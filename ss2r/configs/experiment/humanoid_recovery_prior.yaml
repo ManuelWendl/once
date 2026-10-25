@@ -1,0 +1,42 @@
+# @package _global_
+defaults:
+  - mujoco_playground_dm_control
+  - override /environment: humanoid_recovery
+  - override /agent/propagation: spidr
+  - override /agent/reward_robustness: pessimistic_recovery
+  - _self_
+
+training:
+  # Twice the walker's (walker_recovery_prior): getting the humanoid back up is
+  # harder. A starting point, not tuned.
+  num_timesteps: 20000000
+  # As for the walker, with 8 perturbed models per environment below.
+  num_envs: 1024
+  action_repeat: 1
+  # Recovery horizon H = episode_length / action_repeat = 100 steps (2.5 s).
+  episode_length: 100
+  safe: false
+  train_domain_randomization: true
+  eval_domain_randomization: true
+  render: false
+
+agent:
+  activation: swish
+  # 8 per 128 environments, the update-to-data ratio of mujoco_playground_dm_control.
+  grad_updates_per_step: 64
+  # Finite horizon, no discounting.
+  discounting: 1.0
+  propagation:
+    # Perturbed models per environment for the disagreement.
+    num_envs: 8
+    # The perturbed models of the humanoid disagree less than the ones of the
+    # walker: for random actions from standing, the std of the next observation
+    # is 0.028 (median, 0.017 to 0.046 for p10 to p90), 0.095 for the walker.
+    # Scaled, such that the disagreement relative to the margin is the one of
+    # walker_recovery_prior (0.1 * 0.095 = 0.35 * 0.028).
+    lambda_: 0.35
+    alpha: 0.
+    statistic: std
+  reward_robustness:
+    penalty_scale: 1.0
+    margin: 0.01

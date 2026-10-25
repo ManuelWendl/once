@@ -38,6 +38,9 @@ from ss2r.benchmark_suites.mujoco_playground.humanoid import humanoid as dm_huma
 from ss2r.benchmark_suites.mujoco_playground.humanoid import (
     nonepisodic_humanoid as nonepisodic_humanoid,
 )
+from ss2r.benchmark_suites.mujoco_playground.humanoid import (  # noqa: F401
+    recovery as humanoid_recovery,
+)
 from ss2r.benchmark_suites.mujoco_playground.pick_cartesian import pick_cartesian
 from ss2r.benchmark_suites.mujoco_playground.quadruped import quadruped
 from ss2r.benchmark_suites.mujoco_playground.walker import walker
@@ -611,6 +614,7 @@ randomization_fns = {
     "NonEpisodicHumanoidWalk": dm_humanoid.domain_randomization,
     "NonEpisodicHumanoidRun": dm_humanoid.domain_randomization,
     "SafeHumanoidWalk": dm_humanoid.domain_randomization,
+    "HumanoidRecovery": dm_humanoid.domain_randomization,
     "go_to_goal": go_to_goal.domain_randomization,
     "go_to_goal_recovery": go_to_goal.domain_randomization,
     "PandaPickCubeCartesian": franka_vision_randomize,
@@ -674,6 +678,7 @@ render_fns = {
     "NonEpisodicHumanoidWalk": mujoco_playground.render,
     "NonEpisodicHumanoidRun": mujoco_playground.render,
     "SafeHumanoidWalk": mujoco_playground.render,
+    "HumanoidRecovery": functools.partial(mujoco_playground.render, camera="side"),
     "PandaPickCubeCartesian": functools.partial(
         mujoco_playground.render, num_envs=None, camera="front"
     ),
