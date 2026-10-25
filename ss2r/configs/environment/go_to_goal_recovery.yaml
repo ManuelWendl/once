@@ -21,6 +21,11 @@ task_params:
   # arena, more than the 0.25 that the robot coasts from 0.5 m/s. On average,
   # 0.3% of the arena is farther from every obstacle (at most 8%).
   recovery_max_distance: 2.2
+  # Share of the episodes that start outside of R far from the obstacles,
+  # between recovery_max_distance and max_distance from the closest one. The
+  # layout starts the robot close to the obstacles, and a prior trained only
+  # from there drives out of the arena from 40% of these states.
+  far_start_prob: 0.2
   # The nominal robot reaches 1.5 m/s and 3 rad/s.
   reset_speed: 1.5
   reset_angular_velocity: 3.0

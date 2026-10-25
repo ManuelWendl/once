@@ -127,6 +127,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
         reset_speed: float = RESET_SPEED,
         reset_angular_velocity: float = RESET_ANGULAR_VELOCITY,
+        far_start_prob: float = 0.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -137,6 +138,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         self._recovery_max_distance = recovery_max_distance
         self._reset_speed = reset_speed
         self._reset_angular_velocity = reset_angular_velocity
+        self._far_start_prob = far_start_prob
         # Start as close to the obstacles as the hard constraint allows.
         obstacle_keepouts = [
             self.spec[name].keepout
@@ -169,18 +171,54 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
                 ]
             )
         )
+        far_start = (
+            self._far_start_prob > 0.0
+            and self._recovery_max_distance is not None
+            and self._max_distance is not None
+        )
+        qpos = state.data.qpos
+        if far_start:
+            qpos = self._far_start(jax.random.fold_in(rng, 1), state.data)
         data = mjx_data.init(
             self.mjx_model,
-            qpos=state.data.qpos,
+            qpos=qpos,
             qvel=qvel,
             mocap_pos=state.data.mocap_pos,
             mocap_quat=state.data.mocap_quat,
         )
+        if far_start:
+            state.info["last_goal_dist"] = jp.linalg.norm(self._robot_to_goal(data)[:2])
         obs = self.get_obs(data)
         state.info["recovery_reward"] = jp.zeros(())
         state.metrics["recovery/reached"] = jp.zeros(())
         state.metrics["recovery/violated"] = jp.zeros(())
         return state.replace(data=data, obs=obs)  # type: ignore
+
+    def _far_start(self, rng: jax.Array, data) -> jax.Array:
+        """With probability far_start_prob, moves the robot outside of R, far from
+        the obstacles: between recovery_max_distance and max_distance from the
+        closest one. The layout places the robot close to the obstacles, such that
+        the prior would otherwise never learn to return from there."""
+        assert self._recovery_max_distance is not None
+        assert self._max_distance is not None
+        rng_use, rng_xy = jax.random.split(rng)
+        obstacles = [
+            data.qpos[jp.asarray(ids[:2])][None] for ids in self._vases_qpos_ids
+        ]
+        if self._hazard_mocap_id:
+            obstacles.append(data.mocap_pos[jp.asarray(self._hazard_mocap_id), :2])
+        obstacles = jp.concatenate(obstacles)
+        bound = max(go_to_goal._EXTENTS) + self._max_distance
+        candidates = jax.random.uniform(rng_xy, (512, 2), minval=-bound, maxval=bound)
+        distance = jp.linalg.norm(candidates[:, None] - obstacles[None], axis=-1)
+        distance = distance.min(-1)
+        valid = (distance >= self._recovery_max_distance) & (
+            distance < self._max_distance
+        )
+        use = (jax.random.uniform(rng_use) < self._far_start_prob) & valid.any()
+        xy_ids = jp.asarray(self._robot_qpos_ids)[:2]
+        xy = jp.where(use, candidates[jp.argmax(valid)], data.qpos[xy_ids])
+        return data.qpos.at[xy_ids].set(xy)
 
     def step(self, state: go_to_goal.State, action: jax.Array) -> go_to_goal.State:
         nstate = super().step(state, action)
