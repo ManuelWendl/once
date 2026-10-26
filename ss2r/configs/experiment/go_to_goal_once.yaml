@@ -8,8 +8,9 @@ prior:
   experiment: go_to_goal_recovery_prior
   # Priors have to be trained with the robot and R of go_to_goal_recovery:
   # fbhat9kt predates stable_steering, the priors of gtg_once_stable (e.g.
-  # hdstt6hw) predate linear_thrust and recovery_max_distance. Null trains a
-  # new prior in the run; set the id of a matching one to reuse it.
+  # hdstt6hw) predate linear_thrust and recovery_max_distance, the priors of
+  # gtg_prior_far and gtg_prior_near (e.g. u0yaw13l) predate recovery_dwell.
+  # Null trains a new prior in the run; set the id of a matching one to reuse it.
   wandb_id: null
 
 training:
@@ -41,8 +42,9 @@ agent:
   # random-action data of the system, before and after).
   margin: 0.035
   penalty_scale: 0.2
-  # Horizon of go_to_goal_recovery_prior.
-  recovery_horizon: 25
+  # Horizon and dwell of go_to_goal_recovery_prior.
+  recovery_horizon: 35
+  recovery_dwell: 10
   recovery_restart_rollouts: true
   # Without the statistics of the prior, the model can get stuck at the start.
   init_normalizer_from_prior: true

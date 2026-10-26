@@ -130,6 +130,8 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         far_start_prob: float = 0.0,
         near_start_prob: float = 0.0,
         near_start_width: float = 0.3,
+        recovery_dwell: int = 1,
+        action_repeat: int = 1,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -143,6 +145,11 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         self._far_start_prob = far_start_prob
         self._near_start_prob = near_start_prob
         self._near_start_width = near_start_width
+        # A recovery needs the robot in R at the end of this many control steps
+        # in a row. One control step is action_repeat steps of this environment,
+        # as the episode wrapper repeats the action.
+        self._recovery_dwell = recovery_dwell
+        self._action_repeat = action_repeat
         # Start as close to the obstacles as the hard constraint allows.
         obstacle_keepouts = [
             self.spec[name].keepout
@@ -200,6 +207,10 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             state.info["last_goal_dist"] = jp.linalg.norm(self._robot_to_goal(data)[:2])
         obs = self.get_obs(data)
         state.info["recovery_reward"] = jp.zeros(())
+        # Control steps in a row that ended in R, and the step within the
+        # current control step.
+        state.info["recovery_dwell"] = jp.zeros((), jp.int32)
+        state.info["substep"] = jp.zeros((), jp.int32)
         state.metrics["recovery/reached"] = jp.zeros(())
         state.metrics["recovery/violated"] = jp.zeros(())
         return state.replace(data=data, obs=obs)  # type: ignore
@@ -265,9 +276,10 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         return qpos, qvel
 
     def step(self, state: go_to_goal.State, action: jax.Array) -> go_to_goal.State:
+        dwell, substep = state.info["recovery_dwell"], state.info["substep"]
         nstate = super().step(state, action)
         violated = violates(nstate.obs, self._hard_distance, self._max_distance)
-        recovery_reward = recovery_reward_fn(
+        in_recovery = recovery_reward_fn(
             nstate.obs,
             self._recovery_distance,
             self._recovery_speed,
@@ -275,6 +287,18 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             self._max_distance,
             self._recovery_max_distance,
         )
+        # Recovered once the robot ended recovery_dwell control steps in a row in
+        # R. Only the end of a control step counts, as only its last step is kept
+        # by the episode wrapper.
+        end_of_control_step = substep == self._action_repeat - 1
+        dwell = jp.where(
+            end_of_control_step, jp.where(in_recovery > 0.0, dwell + 1, 0), dwell
+        )
+        recovery_reward = (
+            end_of_control_step & (dwell >= self._recovery_dwell)
+        ).astype(jp.float32)
+        nstate.info["recovery_dwell"] = dwell
+        nstate.info["substep"] = (substep + 1) % self._action_repeat
         nstate.info["recovery_reward"] = recovery_reward
         nstate.metrics["recovery/reached"] = recovery_reward
         nstate.metrics["recovery/violated"] = violated.astype(jp.float32)

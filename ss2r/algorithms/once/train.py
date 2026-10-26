@@ -45,6 +45,7 @@ def _to_transition(chunk: Mapping[str, np.ndarray]) -> Transition:
             "policy_extras": {
                 "behavior_action": chunk["behavior_action"],
                 "intervention": chunk["intervention"],
+                "recovery_dwell": chunk["recovery_dwell"],
             },
         },
     )
@@ -245,6 +246,7 @@ def train(
         "next_observation": np.zeros((c["chunk_size"], observation_size), np.float32),
         "behavior_action": np.zeros((c["chunk_size"], action_size), np.float32),
         "intervention": np.zeros((c["chunk_size"],), np.float32),
+        "recovery_dwell": np.zeros((c["chunk_size"],), np.float32),
     }
     # Two rounds, with inputs that are produced like in the training loop: from
     # the initialization, and from earlier calls of insert and learner_step.

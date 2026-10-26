@@ -531,9 +531,13 @@ def make_safety_gym_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         "go_to_goal_recovery": go_to_goal_recovery.GoToGoalRecovery,
     }
     env_class = env_classes[task_cfg.task_name]
-    train_env = env_class(**task_cfg.task_params)
+    task_params = dict(task_cfg.task_params)
+    if task_cfg.task_name == "go_to_goal_recovery":
+        # Counts the control steps the robot stays in R.
+        task_params["action_repeat"] = cfg.training.action_repeat
+    train_env = env_class(**task_params)
     train_env = train_wrap_env_fn(train_env)
-    eval_env = env_class(**task_cfg.task_params)
+    eval_env = env_class(**task_params)
     eval_env = eval_wrap_env_fn(eval_env)
     train_key, eval_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed))
     train_randomization_fn = (

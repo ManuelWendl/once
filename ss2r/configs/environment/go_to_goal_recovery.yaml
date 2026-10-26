@@ -32,6 +32,11 @@ task_params:
   # recovering, and without these starts its Q_R was below 0.9 for every action
   # at 11% of the parking spots 0.5-0.6 from an obstacle, deadlocking the filter.
   near_start_prob: 0.25
+  # A recovery needs the robot in R at the end of 10 control steps in a row
+  # (0.8 s), instead of entering R once. Otherwise the prior never learns to
+  # stay in R, and its Q_R hardly sees the states inside R where it parks the
+  # robot, which deadlocked the filter. The count is not an input of the prior.
+  recovery_dwell: 10
   # The nominal robot reaches 1.5 m/s and 3 rad/s.
   reset_speed: 1.5
   reset_angular_velocity: 3.0

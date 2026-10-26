@@ -9,8 +9,9 @@ defaults:
 training:
   num_timesteps: 5000000
   action_repeat: 4
-  # Recovery horizon H = episode_length / action_repeat = 25 steps (2 seconds).
-  episode_length: 100
+  # Recovery horizon H = episode_length / action_repeat = 35 steps (2.8 s): 25
+  # to reach R, as before recovery_dwell, and 10 to stay in R.
+  episode_length: 140
   safe: false
   train_domain_randomization: true
   eval_domain_randomization: true

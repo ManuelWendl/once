@@ -83,6 +83,8 @@ class Actor:
         self.key = jax.random.PRNGKey(seed)
         self.params: Any = None
         self.obs = env.reset()
+        # Steps in a row that ended in R, up to the current observation.
+        self.recovery_dwell = 0
         self.index = 0
         self.chunk = self._new_chunk()
         self.stats = _new_stats()
@@ -99,6 +101,9 @@ class Actor:
             # recovery prior took over instead of executing it.
             "behavior_action": np.zeros((n, self.env.action_size), np.float32),
             "intervention": np.zeros((n,), np.float32),
+            # Steps in a row that ended in R before the observation, for the
+            # recovery rollouts of the learner (recovery_dwell).
+            "recovery_dwell": np.zeros((n,), np.float32),
         }
         if self.record_state:
             # The state of the system before every action and the value of the
@@ -136,6 +141,9 @@ class Actor:
         self.chunk["next_observation"][i] = next_obs
         self.chunk["behavior_action"][i] = np.asarray(behavior_action)
         self.chunk["intervention"][i] = intervention
+        self.chunk["recovery_dwell"][i] = self.recovery_dwell
+        in_recovery = info["in_recovery_set"] and not terminated
+        self.recovery_dwell = self.recovery_dwell + 1 if in_recovery else 0
         stats = self.stats
         stats["steps"] += 1
         stats["task_reward"] += reward

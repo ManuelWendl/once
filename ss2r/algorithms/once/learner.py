@@ -41,6 +41,7 @@ def make_dummy_transition(
         policy_extras = {
             "behavior_action": jnp.zeros((action_size,)),
             "intervention": jnp.zeros(()),
+            "recovery_dwell": jnp.zeros(()),
         }
     extras = {
         "state_extras": {
@@ -88,6 +89,8 @@ def make_learner(
         )
     recovery_threshold = c["recovery_threshold"]
     recovery_horizon = c["recovery_horizon"]
+    # Steps in a row the system has to end in R for a recovery, as for the prior.
+    recovery_dwell = c.get("recovery_dwell", 1)
     policy_network = mbpo_network.policy_network
     task_q_network = mbpo_network.qr_network
     model_network = mbpo_network.model_network
@@ -225,6 +228,7 @@ def make_learner(
         recovery_rollout_state = RecoveryRolloutState(  # type: ignore
             obs=jnp.zeros((c["num_recovery_rollouts"], observation_size)),
             step=jnp.zeros((c["num_recovery_rollouts"],), jnp.int32),
+            dwell=jnp.zeros((c["num_recovery_rollouts"],), jnp.int32),
         )
         return (
             training_state,
@@ -455,6 +459,9 @@ def make_learner(
 
         With `recovery_restart_rollouts`, all rollouts start anew in every call:
         the model is never unrolled for more than `recovery_unroll_length` steps.
+
+        A rollout recovers once `recovery_dwell` steps in a row ended in R,
+        counted from the steps the real system was in R at the start state.
         """
         if c["recovery_restart_rollouts"]:
             rollout_state = rollout_state.replace(  # type: ignore
@@ -485,7 +492,14 @@ def make_learner(
             next_obs = jnp.where(is_real[:, None], start.next_observation, next_obs)
             valid = jnp.isfinite(next_obs).all(axis=-1)
             next_obs = jnp.where(valid[:, None], next_obs, obs)
-            recovery_reward = recovery_reward_fn(next_obs) * valid
+            dwell = jnp.where(
+                is_start,
+                start_extras["recovery_dwell"].astype(jnp.int32),
+                rollout_state.dwell,
+            )
+            in_recovery = recovery_reward_fn(next_obs) * valid
+            dwell = jnp.where(in_recovery > 0.0, dwell + 1, 0)
+            recovery_reward = (dwell >= recovery_dwell).astype(jnp.float32)
             violated = violates_fn(next_obs) | ~valid
             step = rollout_state.step + 1
             # Reaching the horizon is a true terminal state, no bootstrapping.
@@ -507,7 +521,9 @@ def make_learner(
                 },
             )
             rollout_state = RecoveryRolloutState(  # type: ignore
-                obs=next_obs, step=jnp.where(done, 0, step)
+                obs=next_obs,
+                step=jnp.where(done, 0, step),
+                dwell=jnp.where(done, 0, dwell),
             )
             metrics = {
                 "recovery_reached": recovery_reward.mean(),
