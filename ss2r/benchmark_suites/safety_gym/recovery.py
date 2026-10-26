@@ -277,6 +277,11 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
 
     def step(self, state: go_to_goal.State, action: jax.Array) -> go_to_goal.State:
         dwell, substep = state.info["recovery_dwell"], state.info["substep"]
+        # The auto reset does not reset the info: a new episode starts with zero
+        # steps. The step within the control step needs no reset, as episodes
+        # end with a control step.
+        if "steps" in state.info:
+            dwell = jp.where(state.info["steps"] == 0, 0, dwell)
         nstate = super().step(state, action)
         violated = violates(nstate.obs, self._hard_distance, self._max_distance)
         in_recovery = recovery_reward_fn(
@@ -297,11 +302,11 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         recovery_reward = (
             end_of_control_step & (dwell >= self._recovery_dwell)
         ).astype(jp.float32)
-        nstate.info["recovery_dwell"] = dwell
+        terminate = (recovery_reward > 0.0) | violated
+        nstate.info["recovery_dwell"] = jp.where(terminate, 0, dwell)
         nstate.info["substep"] = (substep + 1) % self._action_repeat
         nstate.info["recovery_reward"] = recovery_reward
         nstate.metrics["recovery/reached"] = recovery_reward
         nstate.metrics["recovery/violated"] = violated.astype(jp.float32)
-        terminate = (recovery_reward > 0.0) | violated
         done = jp.maximum(nstate.done, terminate.astype(nstate.done.dtype))
         return nstate.replace(done=done)  # type: ignore
