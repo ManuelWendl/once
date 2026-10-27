@@ -8,6 +8,8 @@ sensors from the back, such that they hold with and without
 they can be shared between jax (simulation, learned model) and numpy code.
 """
 
+from typing import Sequence
+
 import jax
 import jax.numpy as jp
 from mujoco_playground._src import mjx_env
@@ -130,6 +132,12 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         far_start_prob: float = 0.0,
         near_start_prob: float = 0.0,
         near_start_width: float = 0.3,
+        stop_start_prob: float = 0.0,
+        slow_start_prob: float = 0.0,
+        start_bands: Sequence[Sequence[float]] = ((0.36, 0.8, 1.0),),
+        align_velocity: bool = False,
+        heading_spread: float = 0.35,
+        slow_angular_velocity: float = 1.0,
         recovery_dwell: int = 1,
         action_repeat: int = 1,
         **kwargs,
@@ -145,6 +153,16 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         self._far_start_prob = far_start_prob
         self._near_start_prob = near_start_prob
         self._near_start_width = near_start_width
+        # Starts at rest and slow, at a distance to the closest obstacle from
+        # one of start_bands: (lower, upper, weight). With align_velocity, the
+        # other starts move along the heading (forward or backward, within
+        # heading_spread) as the robot does, instead of in any direction.
+        self._stop_start_prob = stop_start_prob
+        self._slow_start_prob = slow_start_prob
+        self._start_bands = tuple(tuple(float(x) for x in band) for band in start_bands)
+        self._align_velocity = align_velocity
+        self._heading_spread = heading_spread
+        self._slow_angular_velocity = slow_angular_velocity
         # A recovery needs the robot in R at the end of this many control steps
         # in a row. One control step is action_repeat steps of this environment,
         # as the episode wrapper repeats the action.
@@ -167,6 +185,9 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         state = super().reset(rng)
         speed_ = jax.random.uniform(rng_speed, (), maxval=self._reset_speed)
         direction = jax.random.uniform(rng_direction, (), minval=-jp.pi, maxval=jp.pi)
+        if self._align_velocity:
+            heading = state.data.qpos[jp.asarray(self._robot_qpos_ids)[2]]
+            direction = self._along_heading(jax.random.fold_in(rng, 3), heading)
         angular_velocity = jax.random.uniform(
             rng_angular,
             (),
@@ -188,13 +209,19 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             and self._max_distance is not None
         )
         near_start = self._near_start_prob > 0.0
+        stop_start = self._stop_start_prob > 0.0 or self._slow_start_prob > 0.0
         qpos = state.data.qpos
         far = jp.zeros((), bool)
+        near = jp.zeros((), bool)
         if far_start:
             qpos, far = self._far_start(jax.random.fold_in(rng, 1), state.data)
         if near_start:
-            qpos, qvel = self._near_start(
+            qpos, qvel, near = self._near_start(
                 jax.random.fold_in(rng, 2), state.data, qpos, qvel, far
+            )
+        if stop_start:
+            qpos, qvel = self._stop_start(
+                jax.random.fold_in(rng, 4), state.data, qpos, qvel, far | near
             )
         data = mjx_data.init(
             self.mjx_model,
@@ -203,7 +230,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             mocap_pos=state.data.mocap_pos,
             mocap_quat=state.data.mocap_quat,
         )
-        if far_start or near_start:
+        if far_start or near_start or stop_start:
             state.info["last_goal_dist"] = jp.linalg.norm(self._robot_to_goal(data)[:2])
         obs = self.get_obs(data)
         state.info["recovery_reward"] = jp.zeros(())
@@ -251,7 +278,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
 
     def _near_start(
         self, rng: jax.Array, data, qpos: jax.Array, qvel: jax.Array, far: jax.Array
-    ) -> tuple[jax.Array, jax.Array]:
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
         """With probability near_start_prob, of the episodes that do not start far,
         starts the robot inside of R close to the obstacles: from recovery_distance
         to near_start_width beyond it, slow and not rotating. The prior parks the
@@ -268,6 +295,64 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         direction = jax.random.uniform(rng_direction, (), minval=-jp.pi, maxval=jp.pi)
         velocity = jp.hstack(
             [speed_ * jp.cos(direction), speed_ * jp.sin(direction), 0.0]
+        )
+        xy_ids = jp.asarray(self._robot_qpos_ids)[:2]
+        qpos = qpos.at[xy_ids].set(jp.where(use, xy, qpos[xy_ids]))
+        qvel_ids = jp.asarray(self._robot_qvel_ids)
+        qvel = qvel.at[qvel_ids].set(jp.where(use, velocity, qvel[qvel_ids]))
+        return qpos, qvel, use
+
+    def _along_heading(self, rng: jax.Array, heading: jax.Array) -> jax.Array:
+        """A direction of motion along the heading, forward or backward, within
+        heading_spread: the robot can only thrust along its heading."""
+        rng_back, rng_spread = jax.random.split(rng)
+        backward = jax.random.uniform(rng_back) < 0.5
+        spread = jax.random.uniform(
+            rng_spread, (), minval=-self._heading_spread, maxval=self._heading_spread
+        )
+        return heading + jp.where(backward, jp.pi, 0.0) + spread
+
+    def _stop_start(
+        self, rng: jax.Array, data, qpos: jax.Array, qvel: jax.Array, taken: jax.Array
+    ) -> tuple[jax.Array, jax.Array]:
+        """With probability stop_start_prob, of the episodes that do not start far
+        or near, starts the robot at rest, with slow_start_prob slow (up to
+        recovery_speed along its heading, turning up to slow_angular_velocity).
+        The distance to the closest obstacle is drawn from one of start_bands.
+
+        A deadlock of the filter is the robot stopped where the prior never
+        learned to act, so every place the robot can stop has to be a start."""
+        keys = jax.random.split(rng, 6)
+        u = jax.random.uniform(keys[0])
+        rest = (u < self._stop_start_prob) & ~taken
+        slow = (
+            (u >= self._stop_start_prob)
+            & (u < self._stop_start_prob + self._slow_start_prob)
+            & ~taken
+        )
+        bands = jp.asarray(self._start_bands)
+        band = jax.random.choice(keys[1], len(self._start_bands), p=bands[:, 2])
+        xy, found = self._sample_position(keys[2], data, bands[band, 0], bands[band, 1])
+        use = (rest | slow) & found
+        heading = qpos[jp.asarray(self._robot_qpos_ids)[2]]
+        speed_ = jp.where(
+            slow,
+            jax.random.uniform(keys[3], (), maxval=self._recovery_speed),
+            0.0,
+        )
+        direction = self._along_heading(keys[4], heading)
+        angular_velocity = jp.where(
+            slow,
+            jax.random.uniform(
+                keys[5],
+                (),
+                minval=-self._slow_angular_velocity,
+                maxval=self._slow_angular_velocity,
+            ),
+            0.0,
+        )
+        velocity = jp.hstack(
+            [speed_ * jp.cos(direction), speed_ * jp.sin(direction), angular_velocity]
         )
         xy_ids = jp.asarray(self._robot_qpos_ids)[:2]
         qpos = qpos.at[xy_ids].set(jp.where(use, xy, qpos[xy_ids]))

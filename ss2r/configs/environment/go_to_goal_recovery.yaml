@@ -21,17 +21,21 @@ task_params:
   # arena, more than the 0.25 that the robot coasts from 0.5 m/s. On average,
   # 0.3% of the arena is farther from every obstacle (at most 8%).
   recovery_max_distance: 2.2
-  # Share of the episodes that start outside of R far from the obstacles,
-  # between recovery_max_distance and max_distance from the closest one. The
-  # layout starts the robot close to the obstacles, and a prior trained only
-  # from there drives out of the arena from 40% of these states.
-  far_start_prob: 0.2
-  # Share of the other episodes that start inside of R close to the obstacles,
-  # from recovery_distance to 0.3 beyond it, slow and not rotating (0.25 of the
-  # others: 20% of all episodes). The prior parks the robot there after
-  # recovering, and without these starts its Q_R was below 0.9 for every action
-  # at 11% of the parking spots 0.5-0.6 from an obstacle, deadlocking the filter.
-  near_start_prob: 0.25
+  # Starts. A deadlock of the filter is the robot stopped where the prior never
+  # learned to act, so every place the robot can stop has to be a start: 40% of
+  # the episodes start at rest and 20% slow (up to recovery_speed along the
+  # heading, turning up to 1 rad/s), at a distance to the closest obstacle from
+  # start_bands (lower, upper, weight): around the obstacle edge of R on both
+  # sides, anywhere in R, and around its edge to leaving the arena. The other
+  # 40% start from the layout, in motion along the heading (align_velocity), as
+  # the robot can only thrust along it. These replace far_start_prob (starts
+  # 2.2-2.5 from the obstacles) and near_start_prob (slow starts 0.5-0.8).
+  far_start_prob: 0.0
+  near_start_prob: 0.0
+  stop_start_prob: 0.4
+  slow_start_prob: 0.2
+  start_bands: [[0.36, 0.8, 0.5], [0.5, 2.2, 0.3], [2.0, 2.49, 0.2]]
+  align_velocity: true
   # A recovery needs the robot in R at the end of 10 control steps in a row
   # (0.8 s), instead of entering R once. Otherwise the prior never learns to
   # stay in R, and its Q_R hardly sees the states inside R where it parks the

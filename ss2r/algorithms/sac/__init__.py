@@ -70,6 +70,9 @@ def get_train_fn(cfg, checkpoint_path, restore_checkpoint_path):
         del agent_cfg["replay_buffer"]
     if "pessimistic_q" in agent_cfg:
         del agent_cfg["pessimistic_q"]
+    # Used by the data collection (get_collection_fn), not by train.
+    agent_cfg.pop("random_action_prob", None)
+    agent_cfg.pop("random_first_action_prob", None)
     if "use_vision" in agent_cfg and agent_cfg["use_vision"]:
         network_factory = functools.partial(
             sac_vision_networks.make_sac_vision_networks,
