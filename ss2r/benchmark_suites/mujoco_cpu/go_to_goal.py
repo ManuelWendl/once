@@ -91,6 +91,7 @@ class GoToGoalCPU:
         recovery_max_distance: float | None = recovery.RECOVERY_MAX_DISTANCE,
         stable_steering: bool = False,
         linear_thrust: bool = False,
+        violation_on_cost: bool = False,
         action_repeat: int = 1,
         real_params: Mapping[str, Any] | None = None,
         seed: int = 0,
@@ -116,6 +117,10 @@ class GoToGoalCPU:
         self._hard_distance = hard_distance
         self._max_distance = max_distance
         self._recovery_max_distance = recovery_max_distance
+        # The violation is the cost (a hazard or the vase touched, or the vase
+        # moved) at any step of a control step, or leaving the arena, instead of
+        # a distance to the closest obstacle below hard_distance.
+        self._violation_on_cost = violation_on_cost
         self._robot_body_id = model.body("robot").id
         self._robot_geom_ids = {model.geom("robot").id, model.geom("pointarrow").id}
         self._robot_qpos_ids = go_to_goal._get_qpos_ids(model, ["x", "y", "z"])
@@ -231,9 +236,14 @@ class GoToGoalCPU:
             cost += self._get_cost()
         self._lag_accelerometer(*previous)
         obs = self._get_obs()
-        terminated = bool(
-            recovery.violates(obs, self._hard_distance, self._max_distance)
-        )
+        if self._violation_on_cost:
+            terminated = cost > 0.0 or bool(
+                recovery.out_of_arena(obs, self._max_distance)
+            )
+        else:
+            terminated = bool(
+                recovery.violates(obs, self._hard_distance, self._max_distance)
+            )
         info: dict[str, Any] = {
             "in_recovery_set": bool(
                 recovery.in_recovery_set(

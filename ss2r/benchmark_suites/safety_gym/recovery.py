@@ -139,6 +139,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         heading_spread: float = 0.35,
         slow_angular_velocity: float = 1.0,
         recovery_dwell: int = 1,
+        violation_on_cost: bool = False,
         action_repeat: int = 1,
         **kwargs,
     ):
@@ -167,6 +168,10 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         # in a row. One control step is action_repeat steps of this environment,
         # as the episode wrapper repeats the action.
         self._recovery_dwell = recovery_dwell
+        # The violation is the cost of safety gym (a hazard or the vase touched,
+        # or the vase moved) at any step of a control step, or leaving the arena,
+        # instead of a distance to the closest obstacle below hard_distance.
+        self._violation_on_cost = violation_on_cost
         self._action_repeat = action_repeat
         # Start as close to the obstacles as the hard constraint allows.
         obstacle_keepouts = [
@@ -238,6 +243,9 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         # current control step.
         state.info["recovery_dwell"] = jp.zeros((), jp.int32)
         state.info["substep"] = jp.zeros((), jp.int32)
+        if self._violation_on_cost:
+            # Cost within the current control step.
+            state.info["step_cost"] = jp.zeros(())
         state.metrics["recovery/reached"] = jp.zeros(())
         state.metrics["recovery/violated"] = jp.zeros(())
         return state.replace(data=data, obs=obs)  # type: ignore
@@ -368,7 +376,15 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         if "steps" in state.info:
             dwell = jp.where(state.info["steps"] == 0, 0, dwell)
         nstate = super().step(state, action)
-        violated = violates(nstate.obs, self._hard_distance, self._max_distance)
+        if self._violation_on_cost:
+            # Kept until the end of the control step, which is the only step the
+            # episode wrapper keeps.
+            step_cost = jp.where(substep == 0, 0.0, state.info["step_cost"])
+            step_cost = step_cost + nstate.info["cost"]
+            nstate.info["step_cost"] = step_cost
+            violated = (step_cost > 0.0) | out_of_arena(nstate.obs, self._max_distance)
+        else:
+            violated = violates(nstate.obs, self._hard_distance, self._max_distance)
         in_recovery = recovery_reward_fn(
             nstate.obs,
             self._recovery_distance,
@@ -377,6 +393,8 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             self._max_distance,
             self._recovery_max_distance,
         )
+        if self._violation_on_cost:
+            in_recovery = in_recovery * (1.0 - violated.astype(in_recovery.dtype))
         # Recovered once the robot ended recovery_dwell control steps in a row in
         # R. Only the end of a control step counts, as only its last step is kept
         # by the episode wrapper.

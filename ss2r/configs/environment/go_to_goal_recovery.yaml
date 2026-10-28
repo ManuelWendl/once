@@ -11,8 +11,14 @@ task_params:
   # robot brakes to a stop within 0.03, well inside of the buffer.
   recovery_distance: 0.5
   recovery_speed: 0.5
-  # Hard constraint on the distance.
-  hard_distance: 0.35
+  # The violation is the cost of safety gym: a hazard (within 0.2 of its
+  # center) or the vase touched (from 0.2 to 0.3, depending on the orientation),
+  # or the vase moved, at any step of a control step; or leaving the arena.
+  violation_on_cost: true
+  # The distance below which the robot can touch an obstacle. It bounds the
+  # starts, and is the violation where only the observation is known (the
+  # learned model of ONCE), as the lidar does not tell hazards from vases.
+  hard_distance: 0.3
   # Leaving the arena as a violation: no obstacle within this distance (the
   # observation has no absolute position). 2.5 is almost never reached inside
   # of the arena and about 1.75 m beyond its edge.
@@ -34,7 +40,7 @@ task_params:
   near_start_prob: 0.0
   stop_start_prob: 0.4
   slow_start_prob: 0.2
-  start_bands: [[0.36, 0.8, 0.5], [0.5, 2.2, 0.3], [2.0, 2.49, 0.2]]
+  start_bands: [[0.31, 0.8, 0.5], [0.5, 2.2, 0.3], [2.0, 2.49, 0.2]]
   align_velocity: true
   # A recovery needs the robot in R at the end of 10 control steps in a row
   # (0.8 s), instead of entering R once. Otherwise the prior never learns to

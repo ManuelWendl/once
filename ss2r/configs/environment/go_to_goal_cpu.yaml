@@ -9,8 +9,12 @@ task_params:
   # Safe operable region R: slow and clear of all obstacles.
   recovery_distance: 0.5
   recovery_speed: 0.5
-  # Hard constraint on the distance to the center of the closest obstacle.
-  hard_distance: 0.35
+  # The violation is the cost: a hazard or the vase touched, or the vase moved,
+  # at any step of a control step; or leaving the arena. As in
+  # go_to_goal_recovery, hard_distance is the distance below which the robot can
+  # touch an obstacle, the violation of the learned model.
+  violation_on_cost: true
+  hard_distance: 0.3
   # Leaving the arena as a violation: no obstacle within this distance (the
   # observation has no absolute position). Off (null); 2.5 is almost never
   # reached inside of the arena and about 1.75 m beyond its edge.
