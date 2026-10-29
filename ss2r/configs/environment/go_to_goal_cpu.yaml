@@ -9,6 +9,9 @@ task_params:
   # Safe operable region R: slow and clear of all obstacles.
   recovery_distance: 0.5
   recovery_speed: 0.5
+  # Stopped in R, as in go_to_goal_recovery.
+  stop_speed: 0.05
+  stop_angular_velocity: 0.2
   # The violation is the cost: a hazard or the vase touched, or the vase moved,
   # at any step of a control step; or leaving the arena. As in
   # go_to_goal_recovery, hard_distance is the distance below which the robot can

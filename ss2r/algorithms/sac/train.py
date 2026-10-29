@@ -223,9 +223,7 @@ def train(
     env_steps_per_experience_call = env_steps_per_actor_step
     # equals to ceil(min_replay_size / env_steps_per_actor_step)
     num_prefill_experience_call = -(-min_replay_size // num_envs)
-    if get_experience_fn != collect_single_step and not getattr(
-        get_experience_fn, "single_step", False
-    ):
+    if get_experience_fn != collect_single_step:
         # Using episodic or hardware (which is episodic)
         env_steps_per_experience_call *= episode_length
         num_prefill_experience_call = -(-num_prefill_experience_call // episode_length)

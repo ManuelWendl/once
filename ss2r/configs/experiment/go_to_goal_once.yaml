@@ -9,7 +9,9 @@ prior:
   # Priors have to be trained with the robot and R of go_to_goal_recovery:
   # fbhat9kt predates stable_steering, the priors of gtg_once_stable (e.g.
   # hdstt6hw) predate linear_thrust and recovery_max_distance, the priors of
-  # gtg_prior_far and gtg_prior_near (e.g. u0yaw13l) predate recovery_dwell.
+  # gtg_prior_far and gtg_prior_near (e.g. u0yaw13l) predate recovery_dwell,
+  # the priors up to gtg_prior_spin (e.g. s507fzaf) predate stop_speed and
+  # stop_angular_velocity (for those, set both to null in task_params).
   # Null trains a new prior in the run; set the id of a matching one to reuse it.
   wandb_id: null
 
@@ -46,6 +48,9 @@ agent:
   recovery_horizon: 35
   recovery_dwell: 10
   recovery_restart_rollouts: true
+  # The most likely action of the prior, as reward_robustness.bootstrap_mode of
+  # go_to_goal_recovery_prior. With a prior before gtg_prior_stop, set false.
+  recovery_bootstrap_mode: true
   # Without the statistics of the prior, the model can get stuck at the start.
   init_normalizer_from_prior: true
   init_behavior_from_prior: false

@@ -258,6 +258,12 @@ class PessimisticReward(QTransformation):
     with rollouts that bootstrap instead of ending (as in the online phase), the
     penalty would otherwise accumulate without bound. Below the threshold of the
     filter, the value does not change its decision.
+
+    With `bootstrap_mode`, the value bootstraps with the most likely action of
+    the policy instead of a sampled one: Q_R(s, a) is the value of taking a and
+    then the most likely actions, which the filter executes when it intervenes.
+    A sampled policy cannot hold the robot still, so a recovery set that
+    requires a stop is otherwise almost never reached.
     """
 
     required_extras = ("disagreement", "recovery_reward")
@@ -268,11 +274,13 @@ class PessimisticReward(QTransformation):
         margin: float,
         max_value: float = 1.0,
         min_value: float = 0.0,
+        bootstrap_mode: bool = False,
     ) -> None:
         self.penalty_scale = penalty_scale
         self.margin = margin
         self.max_value = max_value
         self.min_value = min_value
+        self.bootstrap_mode = bootstrap_mode
 
     def __call__(
         self,
@@ -284,7 +292,10 @@ class PessimisticReward(QTransformation):
         scale: float = 1.0,
         key: jax.Array | None = None,
     ):
-        next_action, _ = policy(transitions.next_observation)
+        if self.bootstrap_mode:
+            next_action, _ = policy(transitions.next_observation, deterministic=True)
+        else:
+            next_action, _ = policy(transitions.next_observation)
         next_q = q_fn(transitions.next_observation, next_action)
         next_v = jnp.clip(
             next_q.mean(axis=-1), self.min_value * scale, self.max_value * scale
@@ -361,6 +372,7 @@ def get_reward_q_transform(cfg):
         robustness = PessimisticReward(
             penalty_scale=cfg.agent.reward_robustness.penalty_scale,
             margin=cfg.agent.reward_robustness.margin,
+            bootstrap_mode=cfg.agent.reward_robustness.get("bootstrap_mode", False),
         )
     else:
         raise ValueError("Unknown robustness")

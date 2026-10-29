@@ -89,6 +89,8 @@ class GoToGoalCPU:
         hard_distance: float = recovery.HARD_DISTANCE,
         max_distance: float | None = recovery.MAX_DISTANCE,
         recovery_max_distance: float | None = recovery.RECOVERY_MAX_DISTANCE,
+        stop_speed: float | None = None,
+        stop_angular_velocity: float | None = None,
         stable_steering: bool = False,
         linear_thrust: bool = False,
         violation_on_cost: bool = False,
@@ -117,6 +119,9 @@ class GoToGoalCPU:
         self._hard_distance = hard_distance
         self._max_distance = max_distance
         self._recovery_max_distance = recovery_max_distance
+        # R also requires the robot stopped (see recovery.in_recovery_set).
+        self._stop_speed = stop_speed
+        self._stop_angular_velocity = stop_angular_velocity
         # The violation is the cost (a hazard or the vase touched, or the vase
         # moved) at any step of a control step, or leaving the arena, instead of
         # a distance to the closest obstacle below hard_distance.
@@ -252,6 +257,8 @@ class GoToGoalCPU:
                     self._recovery_speed,
                     self._max_distance,
                     self._recovery_max_distance,
+                    self._stop_speed,
+                    self._stop_angular_velocity,
                 )
             ),
             "cost": cost,

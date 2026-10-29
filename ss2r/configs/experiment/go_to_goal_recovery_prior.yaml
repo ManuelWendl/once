@@ -21,13 +21,6 @@ agent:
   activation: swish
   # Finite horizon, no discounting.
   discounting: 1.0
-  # The filter rates the actions of the behavior, followed by the prior. Half
-  # of the episodes start with a uniformly random action, and 10% of the later
-  # actions are random, such that Q_R also learns actions unlike the prior's.
-  # The other half start with the prior's own action, which trains it to stay
-  # in R from the starts inside of R.
-  random_first_action_prob: 0.5
-  random_action_prob: 0.1
   propagation:
     num_envs: 8
     # With stable_steering and linear_thrust, the disagreement (lambda_ = 1)
@@ -45,3 +38,9 @@ agent:
     # 0.035 * lambda_. Braking and steering alone are not penalized, combined
     # thrust and steering above average slightly.
     margin: 0.007
+    # Q_R bootstraps with the most likely action of the prior, which the filter
+    # executes. R requires a stop (stop_speed, stop_angular_velocity), which a
+    # sampled action almost never keeps for the 10 steps of recovery_dwell: the
+    # prior of gtg_prior_spin recovered in 0% of the episodes with sampled
+    # actions, but in 12% with its most likely ones (it was not trained to stop).
+    bootstrap_mode: true

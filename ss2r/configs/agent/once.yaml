@@ -63,6 +63,10 @@ num_recovery_rollouts: 256
 recovery_unroll_length: 4
 # Start all recovery rollouts from real transitions in every learner step
 recovery_restart_rollouts: false
+# Recovery rollouts and the Q_R target follow the most likely action of the
+# prior, as the filter does, instead of a sampled one. To match a prior trained
+# with reward_robustness.bootstrap_mode.
+recovery_bootstrap_mode: false
 recovery_batch_size: 256
 recovery_grad_updates_per_step: 10
 recovery_replay_size: 200000

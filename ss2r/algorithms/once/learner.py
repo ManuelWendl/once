@@ -134,7 +134,9 @@ def make_learner(
         pessimistic_q=c["pessimistic_q"] if c["use_bro"] else True
     )
     recovery_q_transform = PessimisticReward(
-        penalty_scale=c["penalty_scale"], margin=c["margin"]
+        penalty_scale=c["penalty_scale"],
+        margin=c["margin"],
+        bootstrap_mode=c.get("recovery_bootstrap_mode", False),
     )
     alpha_update = gradients.gradient_update_fn(
         alpha_loss, alpha_optimizer, pmap_axis_name=None
@@ -480,7 +482,11 @@ def make_learner(
                 training_state.recovery_policy_params,
                 obs,
             )
-            action = recovery_action_distribution.sample(logits, key_action)
+            if c.get("recovery_bootstrap_mode", False):
+                # As the filter: the most likely action of the prior.
+                action = recovery_action_distribution.mode(logits)
+            else:
+                action = recovery_action_distribution.sample(logits, key_action)
             start_extras = start.extras["policy_extras"]
             action = jnp.where(
                 is_start[:, None], start_extras["behavior_action"], action

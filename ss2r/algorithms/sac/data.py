@@ -2,7 +2,6 @@ import functools
 from typing import Sequence, Tuple
 
 import jax
-import jax.numpy as jnp
 from brax import envs
 from brax.training import acting
 from brax.training.acme import running_statistics
@@ -16,15 +15,6 @@ from ss2r.rl.utils import quantize_images, remove_pixels
 
 def get_collection_fn(cfg):
     if cfg.agent.data_collection.name == "step":
-        random_action_prob = cfg.agent.get("random_action_prob", 0.0)
-        random_first_action_prob = cfg.agent.get("random_first_action_prob", 0.0)
-        if random_action_prob > 0.0 or random_first_action_prob > 0.0:
-            collect = make_collection_fn(
-                make_random_actor_step(random_action_prob, random_first_action_prob)
-            )
-            # One step per call, as collect_single_step.
-            collect.single_step = True  # type: ignore[attr-defined]
-            return collect
         return collect_single_step
     elif cfg.agent.data_collection.name == "episodic":
 
@@ -116,44 +106,6 @@ def actor_step(
 ):
     policy = make_policy_fn(policy_params)
     return acting.actor_step(env, env_state, policy, key, extra_fields)
-
-
-def make_random_actor_step(random_action_prob: float, random_first_action_prob: float):
-    """`actor_step` that executes a uniformly random action instead of the one of
-    the policy: in the first step of an episode with random_first_action_prob,
-    in the other steps with random_action_prob. The executed action is stored.
-
-    For a critic that rates the actions of another policy, followed by this one
-    (as the filter of ONCE does with the recovery prior), not only the policy's
-    own actions."""
-
-    def step(env, env_state, make_policy_fn, policy_params, key, extra_fields):
-        policy = make_policy_fn(policy_params)
-        key_policy, key_random, key_use = jax.random.split(key, 3)
-        actions, policy_extras = policy(env_state.obs, key_policy)
-        # The auto reset keeps the step count until the next step, but marks the
-        # first state of a new episode with done.
-        first = env_state.done > 0
-        if "steps" in env_state.info:
-            first = first | (env_state.info["steps"] == 0)
-        prob = jnp.where(first, random_first_action_prob, random_action_prob)
-        use = jax.random.uniform(key_use, prob.shape) < prob
-        random_actions = jax.random.uniform(
-            key_random, actions.shape, minval=-1.0, maxval=1.0
-        )
-        actions = jnp.where(use[..., None], random_actions, actions)
-        nstate = env.step(env_state, actions)
-        state_extras = {x: nstate.info[x] for x in extra_fields}
-        return nstate, Transition(  # pytype: disable=wrong-arg-types
-            observation=env_state.obs,
-            action=actions,
-            reward=nstate.reward,
-            discount=1 - nstate.done,
-            next_observation=nstate.obs,
-            extras={"policy_extras": policy_extras, "state_extras": state_extras},
-        )
-
-    return step
 
 
 def generate_unroll(

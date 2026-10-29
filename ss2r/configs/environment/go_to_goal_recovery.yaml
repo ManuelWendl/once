@@ -11,6 +11,14 @@ task_params:
   # robot brakes to a stop within 0.03, well inside of the buffer.
   recovery_distance: 0.5
   recovery_speed: 0.5
+  # R also requires the robot stopped: below 0.05 m/s and 0.2 rad/s. The prior
+  # then learns to brake to a full stop and stay there, instead of parking while
+  # still turning or creeping (26 of the 65 deadlocks of the filter with the
+  # priors of gtg_prior_cost, 16 of 51 with gtg_prior_spin). Braking
+  # stops the robot from 1.5 m/s in 5-6 control steps, coasting in 23; turning
+  # at 3 rad/s stops within 2. Parked, both sensors read 0.
+  stop_speed: 0.05
+  stop_angular_velocity: 0.2
   # The violation is the cost of safety gym: a hazard (within 0.2 of its
   # center) or the vase touched (from 0.2 to 0.3, depending on the orientation),
   # or the vase moved, at any step of a control step; or leaving the arena.

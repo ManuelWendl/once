@@ -19,6 +19,7 @@ from ss2r.benchmark_suites.safety_gym import go_to_goal, lidar
 
 _OBSTACLE_LIDAR = slice(0, lidar.NUM_LIDAR_BINS)
 _VELOCIMETER = slice(-5, -3)
+_GYRO = -3
 
 # Distances are measured between the centers of the robot and of an obstacle.
 # Hazards have a radius of 0.2 and have a cost when the center of the robot is
@@ -57,6 +58,11 @@ def speed(obs):
     return (obs[..., _VELOCIMETER] ** 2).sum(axis=-1) ** 0.5
 
 
+def angular_speed(obs):
+    """Turning rate of the robot, in either direction."""
+    return abs(obs[..., _GYRO])
+
+
 def out_of_arena(obs, max_distance: float | None = MAX_DISTANCE):
     """Whether the robot left the arena: no obstacle within `max_distance`."""
     if max_distance is None:
@@ -81,8 +87,14 @@ def in_recovery_set(
     recovery_speed: float = RECOVERY_SPEED,
     max_distance: float | None = MAX_DISTANCE,
     recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
+    stop_speed: float | None = None,
+    stop_angular_velocity: float | None = None,
 ):
-    """Whether the robot is in the safe operable region R."""
+    """Whether the robot is in the safe operable region R.
+
+    With `stop_speed` and `stop_angular_velocity`, R also requires the robot to
+    be stopped: neither moving nor turning faster than these.
+    """
     inside = (
         (obstacle_distance(obs) >= recovery_distance)
         & (speed(obs) <= recovery_speed)
@@ -90,6 +102,10 @@ def in_recovery_set(
     )
     if recovery_max_distance is not None:
         inside = inside & (obstacle_distance(obs) <= recovery_max_distance)
+    if stop_speed is not None:
+        inside = inside & (speed(obs) <= stop_speed)
+    if stop_angular_velocity is not None:
+        inside = inside & (angular_speed(obs) <= stop_angular_velocity)
     return inside
 
 
@@ -100,10 +116,18 @@ def recovery_reward_fn(
     hard_distance: float = HARD_DISTANCE,
     max_distance: float | None = MAX_DISTANCE,
     recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
+    stop_speed: float | None = None,
+    stop_angular_velocity: float | None = None,
 ):
     """1 if the robot entered R, 0 otherwise. Not to be mixed with the task reward."""
     reached = in_recovery_set(
-        next_obs, recovery_distance, recovery_speed, max_distance, recovery_max_distance
+        next_obs,
+        recovery_distance,
+        recovery_speed,
+        max_distance,
+        recovery_max_distance,
+        stop_speed,
+        stop_angular_velocity,
     )
     reached = reached & ~violates(next_obs, hard_distance, max_distance)
     return reached.astype("float32")
@@ -127,6 +151,8 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         hard_distance: float = HARD_DISTANCE,
         max_distance: float | None = MAX_DISTANCE,
         recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
+        stop_speed: float | None = None,
+        stop_angular_velocity: float | None = None,
         reset_speed: float = RESET_SPEED,
         reset_angular_velocity: float = RESET_ANGULAR_VELOCITY,
         far_start_prob: float = 0.0,
@@ -151,6 +177,9 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         self._hard_distance = hard_distance
         self._max_distance = max_distance
         self._recovery_max_distance = recovery_max_distance
+        # R also requires the robot stopped (see in_recovery_set); off if None.
+        self._stop_speed = stop_speed
+        self._stop_angular_velocity = stop_angular_velocity
         self._reset_speed = reset_speed
         self._reset_angular_velocity = reset_angular_velocity
         self._far_start_prob = far_start_prob
@@ -423,6 +452,8 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             self._hard_distance,
             self._max_distance,
             self._recovery_max_distance,
+            self._stop_speed,
+            self._stop_angular_velocity,
         )
         if self._violation_on_cost:
             in_recovery = in_recovery * (1.0 - violated.astype(in_recovery.dtype))
