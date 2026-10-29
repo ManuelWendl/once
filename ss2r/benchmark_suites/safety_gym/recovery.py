@@ -138,6 +138,8 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         align_velocity: bool = False,
         heading_spread: float = 0.35,
         slow_angular_velocity: float = 1.0,
+        spin_start_prob: float = 0.0,
+        spin_speed: float = 0.15,
         recovery_dwell: int = 1,
         violation_on_cost: bool = False,
         action_repeat: int = 1,
@@ -164,6 +166,10 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         self._align_velocity = align_velocity
         self._heading_spread = heading_spread
         self._slow_angular_velocity = slow_angular_velocity
+        # Starts turning in place, with spin_start_prob: up to spin_speed along
+        # the heading and up to reset_angular_velocity, in the same bands.
+        self._spin_start_prob = spin_start_prob
+        self._spin_speed = spin_speed
         # A recovery needs the robot in R at the end of this many control steps
         # in a row. One control step is action_repeat steps of this environment,
         # as the episode wrapper repeats the action.
@@ -214,7 +220,11 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             and self._max_distance is not None
         )
         near_start = self._near_start_prob > 0.0
-        stop_start = self._stop_start_prob > 0.0 or self._slow_start_prob > 0.0
+        stop_start = (
+            self._stop_start_prob > 0.0
+            or self._slow_start_prob > 0.0
+            or self._spin_start_prob > 0.0
+        )
         qpos = state.data.qpos
         far = jp.zeros((), bool)
         near = jp.zeros((), bool)
@@ -325,8 +335,10 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
     ) -> tuple[jax.Array, jax.Array]:
         """With probability stop_start_prob, of the episodes that do not start far
         or near, starts the robot at rest, with slow_start_prob slow (up to
-        recovery_speed along its heading, turning up to slow_angular_velocity).
-        The distance to the closest obstacle is drawn from one of start_bands.
+        recovery_speed along its heading, turning up to slow_angular_velocity),
+        and with spin_start_prob turning in place (up to spin_speed along its
+        heading, turning up to reset_angular_velocity). The distance to the
+        closest obstacle is drawn from one of start_bands.
 
         A deadlock of the filter is the robot stopped where the prior never
         learned to act, so every place the robot can stop has to be a start."""
@@ -338,10 +350,12 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             & (u < self._stop_start_prob + self._slow_start_prob)
             & ~taken
         )
+        spin_from = self._stop_start_prob + self._slow_start_prob
+        spin = (u >= spin_from) & (u < spin_from + self._spin_start_prob) & ~taken
         bands = jp.asarray(self._start_bands)
         band = jax.random.choice(keys[1], len(self._start_bands), p=bands[:, 2])
         xy, found = self._sample_position(keys[2], data, bands[band, 0], bands[band, 1])
-        use = (rest | slow) & found
+        use = (rest | slow | spin) & found
         heading = qpos[jp.asarray(self._robot_qpos_ids)[2]]
         speed_ = jp.where(
             slow,
@@ -359,6 +373,23 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             ),
             0.0,
         )
+        if self._spin_start_prob > 0.0:
+            rng_spin_speed, rng_spin = jax.random.split(jax.random.fold_in(rng, 1))
+            speed_ = jp.where(
+                spin,
+                jax.random.uniform(rng_spin_speed, (), maxval=self._spin_speed),
+                speed_,
+            )
+            angular_velocity = jp.where(
+                spin,
+                jax.random.uniform(
+                    rng_spin,
+                    (),
+                    minval=-self._reset_angular_velocity,
+                    maxval=self._reset_angular_velocity,
+                ),
+                angular_velocity,
+            )
         velocity = jp.hstack(
             [speed_ * jp.cos(direction), speed_ * jp.sin(direction), angular_velocity]
         )
