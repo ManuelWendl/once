@@ -39,8 +39,7 @@ agent:
     # thrust and steering above average slightly.
     margin: 0.007
     # Q_R bootstraps with the most likely action of the prior, which the filter
-    # executes. R requires a stop (stop_speed, stop_angular_velocity), which a
-    # sampled action almost never keeps for the 10 steps of recovery_dwell: the
-    # prior of gtg_prior_spin recovered in 0% of the episodes with sampled
-    # actions, but in 12% with its most likely ones (it was not trained to stop).
+    # executes. With the stop of R (stop_speed, stop_angular_velocity), the two
+    # differ: the prior of gtg_prior_spin (not trained to stop) recovered in 31%
+    # of the episodes with sampled actions, in 54% with its most likely ones.
     bootstrap_mode: true

@@ -11,14 +11,19 @@ task_params:
   # robot brakes to a stop within 0.03, well inside of the buffer.
   recovery_distance: 0.5
   recovery_speed: 0.5
-  # R also requires the robot stopped: below 0.05 m/s and 0.2 rad/s. The prior
-  # then learns to brake to a full stop and stay there, instead of parking while
-  # still turning or creeping (26 of the 65 deadlocks of the filter with the
-  # priors of gtg_prior_cost, 16 of 51 with gtg_prior_spin). Braking
-  # stops the robot from 1.5 m/s in 5-6 control steps, coasting in 23; turning
-  # at 3 rad/s stops within 2. Parked, both sensors read 0.
-  stop_speed: 0.05
-  stop_angular_velocity: 0.2
+  # R also requires the robot almost stopped: below 0.2 m/s and 1.5 rad/s, such
+  # that the prior does not park while turning fast or creeping (10 of the 89
+  # deadlocks in R of the filter with the priors of gtg_prior_spin). Not a full
+  # stop: the training data is collected with sampled actions, and the action
+  # noise of SAC (pre-tanh std about 0.26 at the target entropy, 0.55-0.7 in the
+  # first 1-2M steps) turns the robot by about 3.3 rad/s per unit of steering.
+  # With 0.05 m/s and 0.2 rad/s (gtg_prior_stop), sampled actions never stayed
+  # stopped for recovery_dwell, the data had no recovery and Q_R collapsed to 0.
+  # Braking with that noise stays below 0.2 m/s and 1.5 rad/s for the dwell in
+  # 67% of the episodes (std 0.26) and 2.5-12% (std 0.55-0.7), below 1.0 rad/s
+  # in 37% and 0.1-0.6%.
+  stop_speed: 0.2
+  stop_angular_velocity: 1.5
   # The violation is the cost of safety gym: a hazard (within 0.2 of its
   # center) or the vase touched (from 0.2 to 0.3, depending on the orientation),
   # or the vase moved, at any step of a control step; or leaving the arena.
