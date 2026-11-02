@@ -285,6 +285,26 @@ then use `CALIB=new_plate.json`.
 | The wrong camera (e.g. the Mac's own) | `CYBERRUNNER_CAMERA=1 macos/run.sh hw` |
 | The motor adapter is not found | `CYBERRUNNER_PORT=/dev/cu.usbserial-XXXX macos/run.sh hw` |
 
+## ONCE in simulation
+
+`+experiment=cyberrunner_once` is ONCE sim to sim: the learner on a GPU and, in the same job, the
+CPU simulator (`CyberRunnerCPU`) as the real system, at 60 Hz. It holds the configuration of all
+runs so far; only the prior's checkpoint is passed:
+
+```bash
+python train_once.py +experiment=cyberrunner_once training.seed=30 \
+  prior.checkpoint_path=adversary_m168_s0/ckpt/000025665536
+```
+
+- **The prior** is the adversary of seed 0 at 25.7M steps, the checkpoint chosen by the
+  calibration. Filippo shares it with the policies (section 4). It was trained with
+  `+experiment=cyberrunner_recovery_prior_adversary training.num_timesteps=40000000
+  agent.propagation.lambda_=8000 agent.reward_robustness.margin=0.168`. Without
+  `prior.checkpoint_path`, `train_once.py` trains a prior first, with the overrides in
+  `prior.overrides`.
+- **500k steps** take about 2.3 hours on an RTX 4090. With seeds 30–32 and 1M steps, the ball
+  reached the goal on every seed (60, 23 and 1 times), with 2 falls per seed.
+
 ## ONCE on the rig
 
 The behaviour learns on the rig with the shield on: the learner runs on a GPU, the actor on the
@@ -292,7 +312,8 @@ rig's Mac. `rig_bridge.py` runs in the rig's conda env; the rest runs in the onc
 Set `ONCE_REMOTE_TOKEN` to the same secret on both machines.
 
 1. Start the learner on the GPU with `+experiment=cyberrunner_once_rig` and
-   `prior.checkpoint_path=...`. It compiles, then waits for the robot.
+   `prior.checkpoint_path=...`, the same prior as in simulation. It compiles, then waits for the
+   robot.
 2. On the Mac, open the tunnel to its node: `ssh -N -L 5555:<node ip>:5555 euler`.
 3. Bring the rig up (`macos/run.sh hw`), then start the bridge:
 
