@@ -340,9 +340,8 @@ def export(run_dir, out_path, ckpt=None) -> pathlib.Path:
 
 
 def q_graph(normalizer: Any, qr_params: Any, activation: str, normalize: bool) -> Any:
-    """observation [obs], action [2] -> normalizer -> each critic's BroNet -> their
-    minimum = q [1], the pessimistic Q_R for the shield on the robot (ONCE's filter
-    reads the mean in training)."""
+    """observation [obs], action [2] -> normalizer -> each critic's BroNet = critics [n],
+    and their minimum = q [1], the pessimistic Q_R (ONCE's filter reads their mean)."""
     import onnx
     from onnx import TensorProto, helper
 
@@ -424,7 +423,10 @@ def q_graph(normalizer: Any, qr_params: Any, activation: str, normalize: bool) -
             helper.make_tensor_value_info("observation", TensorProto.FLOAT, [obs_size]),
             helper.make_tensor_value_info("action", TensorProto.FLOAT, [ACTION_SIZE]),
         ],
-        [helper.make_tensor_value_info("q", TensorProto.FLOAT, [1])],
+        [
+            helper.make_tensor_value_info("q", TensorProto.FLOAT, [1]),
+            helper.make_tensor_value_info("critics", TensorProto.FLOAT, [len(critics)]),
+        ],
         inits,
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])

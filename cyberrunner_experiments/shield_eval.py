@@ -5,8 +5,8 @@ MODE=zero      zero commands instead: the do-nothing baseline of test B
 MODE=shield    the --onnx policy acts while Q_R(obs, its action) >= TAU; below, the backup takes
                over for BACKUP_STEPS steps (default 60, 1 s), then Q_R decides again (test A;
                BACKUP_STEPS=1 decides at every step, as ONCE's recovery filter). Q_R is the
-               pessimistic one of the export: the lowest critic, where ONCE's filter takes their
-               mean
+               critics' mean, as ONCE's filter, or with Q_R=min their minimum (the shield
+               of the earlier tests)
 MODE=behavior  the --onnx policy alone, with Q_R logged (test A without the shield)
 
 Run with the rig stack up (macos/run.sh hw) and macos/env.sh sourced, BACKUP=DIR holding
@@ -36,6 +36,10 @@ HISTORY = (
 MODE = os.environ.get("MODE", "shield")
 TAU = float(os.environ.get("TAU", "0.9"))
 BACKUP_STEPS = int(os.environ.get("BACKUP_STEPS", "60"))
+# The critics' mean, as ONCE's filter, or their minimum.
+Q_R = os.environ.get("Q_R", "mean")
+if Q_R not in ("mean", "min"):
+    raise ValueError(f"Unknown Q_R {Q_R!r}")
 START = (
     np.array([float(x) for x in os.environ.get("START", "154,224").split(",")]) / 1000
 )
@@ -88,7 +92,8 @@ class ShieldPolicy:
         else:
             behavior = self.behavior.run(["action"], {"observation": obs})[0]
             action = behavior
-        q = self.q.run(["q"], {"observation": history, "action": action})[0][0]
+        critics = self.q.run(["critics"], {"observation": history, "action": action})
+        q = (np.mean if Q_R == "mean" else np.min)(critics[0])
         if self.mode == "shield" and self.left == 0 and q < self.tau:
             self.left = self.backup_steps
             self.takeovers += 1
