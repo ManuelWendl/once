@@ -4,7 +4,7 @@ Run with the rig stack up (macos/run.sh hw) and macos/env.sh sourced, before rig
     LAYOUT=easy LEVEL_AT_START=0 CALIB=$PWD/easy_plate.json WAIT_DEG=-2.5,-0.75 START=148,222 \
         START_MM=15 python rig_bridge.py --log-dir D
 The motors go to zero if the actor is silent for 100 ms, disconnects, or the bridge stops.
-The lift runs while the bridge does. At a goal the board levels and a sound plays: take the ball off the board and put it at the
+The lift runs only while the ball is not seen on the board. At a goal the board levels and a sound plays: take the ball off the board and put it at the
 start. Training stays paused until it rests there.
 """
 
@@ -130,6 +130,35 @@ def lift(env: Any, command: str) -> None:
         print(f"WARNING: {command} did not answer", flush=True)
 
 
+class Lift:
+    """Runs the lift while the ball is not seen on the board, after `frames` frames of
+    the change, such that a missed frame does not switch it."""
+
+    def __init__(self, env: Any, frames: int = 30):
+        from std_srvs.srv import Trigger
+
+        self.request = Trigger.Request
+        self.clients = {
+            running: env.node.create_client(Trigger, f"cyberrunner_dynamixel/{command}")
+            for running, command in ((True, "start_reload"), (False, "stop_reload"))
+        }
+        self.env = env
+        self.frames = frames
+        self.running = False
+        self.count = 0
+
+    def update(self) -> None:
+        """Called after every frame; the request is not waited for."""
+        if self.env.ball_detected != self.running:
+            self.count = 0
+            return
+        self.count += 1
+        if self.count >= self.frames:
+            self.running = not self.running
+            self.count = 0
+            self.clients[self.running].call_async(self.request())
+
+
 def stop(signum, frame) -> None:
     raise KeyboardInterrupt
 
@@ -170,7 +199,17 @@ def main() -> None:
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
     bridge = Bridge(env, hold_level, args.log_dir)
-    lift(env, "start_reload")
+    # The motor node starts with the lift running.
+    lift(env, "stop_reload")
+    lift_control = Lift(env)
+    get_obs = env._get_obs
+
+    def get_obs_and_lift():
+        observation = get_obs()
+        lift_control.update()
+        return observation
+
+    env._get_obs = get_obs_and_lift
     try:
         serve(bridge.handle, bridge.idle, args.port)
     except KeyboardInterrupt:
