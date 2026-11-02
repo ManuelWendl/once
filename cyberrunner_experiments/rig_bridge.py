@@ -4,7 +4,7 @@ Run with the rig stack up (macos/run.sh hw) and macos/env.sh sourced, before rig
     LAYOUT=easy LEVEL_AT_START=0 CALIB=$PWD/easy_plate.json WAIT_DEG=-2.5,-0.75 START=148,222 \
         START_MM=15 python rig_bridge.py --log-dir D
 The motors go to zero if the actor is silent for 100 ms, disconnects, or the bridge stops.
-At a goal the board levels and a sound plays: take the ball off the board and put it at the
+The lift runs while the bridge does. At a goal the board levels and a sound plays: take the ball off the board and put it at the
 start. Training stays paused until it rests there.
 """
 
@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import pathlib
+import signal
 import subprocess
 import time
 from typing import Any, Callable
@@ -114,6 +115,25 @@ class Bridge:
         self.env._send_action(ZERO)
 
 
+def lift(env: Any, command: str) -> None:
+    """Calls the motor node's `start_reload` or `stop_reload`."""
+    import rclpy
+    from std_srvs.srv import Trigger
+
+    client = env.node.create_client(Trigger, f"cyberrunner_dynamixel/{command}")
+    if not client.wait_for_service(timeout_sec=2.0):
+        print(f"WARNING: no {command} service", flush=True)
+        return
+    future = client.call_async(Trigger.Request())
+    rclpy.spin_until_future_complete(env.node, future, timeout_sec=2.0)
+    if future.result() is None:
+        print(f"WARNING: {command} did not answer", flush=True)
+
+
+def stop(signum, frame) -> None:
+    raise KeyboardInterrupt
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=5600)
@@ -145,11 +165,19 @@ def main() -> None:
         env._send_action(ZERO)
 
     env = runner(num_wait_steps=args.num_wait_steps)
+    # rclpy's own handlers shut ROS down at Ctrl-C, after which the zero below cannot be
+    # sent and the motors keep their last command.
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGTERM, stop)
     bridge = Bridge(env, hold_level, args.log_dir)
+    lift(env, "start_reload")
     try:
         serve(bridge.handle, bridge.idle, args.port)
+    except KeyboardInterrupt:
+        pass
     finally:
         env._send_action(ZERO)
+        lift(env, "stop_reload")
         print(f"Resets {bridge.resets}, silences {bridge.silences}", flush=True)
 
 
