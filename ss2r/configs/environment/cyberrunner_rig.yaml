@@ -20,6 +20,8 @@ task_params:
   # Safe operable region R, as in environment/cyberrunner_recovery.yaml.
   recovery_hole_distance: 0.0138
   recovery_speed: 0.05
+  # As in environment/cyberrunner_cpu.yaml.
+  reward_scale: 10
   bridge_port: 5600
   # A ball lost closer than this to a hole's centre has fallen; the camera also loses it
   # elsewhere, 83 mm from the nearest hole.
