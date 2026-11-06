@@ -289,7 +289,10 @@ class PessimisticReward(QTransformation):
         scale: float = 1.0,
         key: jax.Array | None = None,
     ):
-        next_action, _ = policy(transitions.next_observation)
+        if self.bootstrap_mode:
+            next_action, _ = policy(transitions.next_observation, deterministic=True)
+        else:
+            next_action, _ = policy(transitions.next_observation)
         next_q = q_fn(transitions.next_observation, next_action)
         next_q = next_q.min(axis=-1) if self.pessimistic_q else next_q.mean(axis=-1)
         next_v = jnp.clip(next_q, self.min_value * scale, self.max_value * scale)

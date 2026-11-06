@@ -1,0 +1,23 @@
+domain_name: mujoco_cpu
+
+task_name: HumanoidWalkCPU
+task_params:
+  ctrl_dt: 0.025
+  sim_dt: 0.0025
+  # Safe operable region R.
+  recovery_upright: 0.9
+  recovery_head_height: 1.4
+  recovery_tilt_rate: 1.0
+  # Hard constraint on the uprightness of the torso and the height of the head.
+  hard_upright: 0.5
+  hard_head_height: 1.0
+
+# Offsets to the nominal model, playing the role of the sim-to-real gap: hips
+# and knees 10% stronger (gears 40, 120, 40 and 80), as the walker's +10 on 100.
+real_params:
+  friction: 0.
+  gear_hip:
+    x: 4.
+    y: 12.
+    z: 4.
+  gear_knee: 8.

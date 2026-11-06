@@ -43,6 +43,8 @@ class RecoveryRolloutState:
     # Number of steps taken in the current rollout. Zero means that the rollout
     # (re)starts from a transition of the behavior buffer.
     step: jnp.ndarray
+    # Steps in a row that ended in R, towards recovery_dwell.
+    dwell: jnp.ndarray
 
 
 @flax.struct.dataclass

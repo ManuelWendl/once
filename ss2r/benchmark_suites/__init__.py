@@ -39,6 +39,9 @@ from ss2r.benchmark_suites.mujoco_playground.humanoid import humanoid as dm_huma
 from ss2r.benchmark_suites.mujoco_playground.humanoid import (
     nonepisodic_humanoid as nonepisodic_humanoid,
 )
+from ss2r.benchmark_suites.mujoco_playground.humanoid import (  # noqa: F401
+    recovery as humanoid_recovery,
+)
 from ss2r.benchmark_suites.mujoco_playground.pick_cartesian import pick_cartesian
 from ss2r.benchmark_suites.mujoco_playground.quadruped import quadruped
 from ss2r.benchmark_suites.mujoco_playground.walker import walker
@@ -532,9 +535,13 @@ def make_safety_gym_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn):
         "go_to_goal_recovery": go_to_goal_recovery.GoToGoalRecovery,
     }
     env_class = env_classes[task_cfg.task_name]
-    train_env = env_class(**task_cfg.task_params)
+    task_params = dict(task_cfg.task_params)
+    if task_cfg.task_name == "go_to_goal_recovery":
+        # Counts the control steps the robot stays in R.
+        task_params["action_repeat"] = cfg.training.action_repeat
+    train_env = env_class(**task_params)
     train_env = train_wrap_env_fn(train_env)
-    eval_env = env_class(**task_cfg.task_params)
+    eval_env = env_class(**task_params)
     eval_env = eval_wrap_env_fn(eval_env)
     train_key, eval_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed))
     train_randomization_fn = (
@@ -616,6 +623,7 @@ randomization_fns = {
     "NonEpisodicHumanoidWalk": dm_humanoid.domain_randomization,
     "NonEpisodicHumanoidRun": dm_humanoid.domain_randomization,
     "SafeHumanoidWalk": dm_humanoid.domain_randomization,
+    "HumanoidRecovery": dm_humanoid.domain_randomization,
     "go_to_goal": go_to_goal.domain_randomization,
     "go_to_goal_recovery": go_to_goal.domain_randomization,
     "PandaPickCubeCartesian": franka_vision_randomize,
@@ -680,6 +688,7 @@ render_fns = {
     "NonEpisodicHumanoidWalk": mujoco_playground.render,
     "NonEpisodicHumanoidRun": mujoco_playground.render,
     "SafeHumanoidWalk": mujoco_playground.render,
+    "HumanoidRecovery": functools.partial(mujoco_playground.render, camera="side"),
     "PandaPickCubeCartesian": functools.partial(
         mujoco_playground.render, num_envs=None, camera="front"
     ),

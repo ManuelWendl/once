@@ -89,7 +89,9 @@ def make_losses(
         )
         key, another_key = jax.random.split(key)
 
-        def policy(obs: jax.Array) -> tuple[jax.Array, jax.Array]:
+        def policy(
+            obs: jax.Array, deterministic: bool = False
+        ) -> tuple[jax.Array, jax.Array]:
             next_dist_params = policy_network.apply(
                 normalizer_params, policy_params, obs
             )
@@ -100,6 +102,9 @@ def make_losses(
                 next_dist_params, next_action
             )
             next_action = parametric_action_distribution.postprocess(next_action)
+            if deterministic:
+                # The most likely action; the log probability is of the sample.
+                next_action = parametric_action_distribution.mode(next_dist_params)
             return next_action, next_log_prob
 
         q_fn = lambda obs, action: q_network.apply(

@@ -46,6 +46,7 @@ def _to_transition(chunk: Mapping[str, np.ndarray]) -> Transition:
             "policy_extras": {
                 "behavior_action": chunk["behavior_action"],
                 "intervention": chunk["intervention"],
+                "recovery_dwell": chunk["recovery_dwell"],
             },
         },
     )
@@ -273,6 +274,7 @@ def train(
         "next_observation": np.zeros((c["chunk_size"], observation_size), np.float32),
         "behavior_action": np.zeros((c["chunk_size"], action_size), np.float32),
         "intervention": np.zeros((c["chunk_size"],), np.float32),
+        "recovery_dwell": np.zeros((c["chunk_size"],), np.float32),
     }
     # Two rounds, with inputs that are produced like in the training loop: from
     # the initialization, and from earlier calls of insert and learner_step.
@@ -379,6 +381,7 @@ def train(
     costs = 0.0
     counts: dict[str, float] = {}
     best: dict[str, float] = {}
+    out_of_arena = 0.0
     next_log = log_every
     window: dict[str, float] = {}
     window_learner_steps = 0
@@ -402,6 +405,7 @@ def train(
                 env_steps += c["chunk_size"] * action_repeat
                 violations += stats["violations"]
                 costs += stats.get("cost", 0.0)
+                out_of_arena += stats.get("out_of_arena", 0.0)
                 for name, value in stats.items():
                     if name.startswith("counts/"):
                         counts[name] = counts.get(name, 0.0) + value
@@ -462,6 +466,9 @@ def train(
                     # Environment steps with a cost, for environments with one.
                     metrics["online/costs"] = costs
                 metrics |= task_metrics(window, counts, best)
+                if "out_of_arena" in window:
+                    # The violations by leaving the arena, counted from the start.
+                    metrics["online/out_of_arena"] = out_of_arena
                 logging.info(metrics)
                 progress_fn(env_steps, metrics)
                 save(env_steps)

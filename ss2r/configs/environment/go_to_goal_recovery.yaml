@@ -11,11 +11,70 @@ task_params:
   # robot brakes to a stop within 0.03, well inside of the buffer.
   recovery_distance: 0.5
   recovery_speed: 0.5
-  # Hard constraint on the distance.
-  hard_distance: 0.35
+  # R also requires the robot almost stopped: below 0.2 m/s and 1.5 rad/s, such
+  # that the prior does not park while turning fast or creeping (10 of the 89
+  # deadlocks in R of the filter with the priors of gtg_prior_spin). Not a full
+  # stop: the training data is collected with sampled actions, and the action
+  # noise of SAC (pre-tanh std about 0.26 at the target entropy, 0.55-0.7 in the
+  # first 1-2M steps) turns the robot by about 3.3 rad/s per unit of steering.
+  # With 0.05 m/s and 0.2 rad/s (gtg_prior_stop), sampled actions never stayed
+  # stopped for recovery_dwell, the data had no recovery and Q_R collapsed to 0.
+  # Braking with that noise stays below 0.2 m/s and 1.5 rad/s for the dwell in
+  # 67% of the episodes (std 0.26) and 2.5-12% (std 0.55-0.7), below 1.0 rad/s
+  # in 37% and 0.1-0.6%.
+  stop_speed: 0.2
+  stop_angular_velocity: 1.5
+  # The violation is the cost of safety gym: a hazard (within 0.2 of its
+  # center) or the vase touched (from 0.2 to 0.3, depending on the orientation),
+  # or the vase moved, at any step of a control step; or leaving the arena.
+  violation_on_cost: true
+  # The distance below which the robot can touch an obstacle. It bounds the
+  # starts, and is the violation where only the observation is known (the
+  # learned model of ONCE), as the lidar does not tell hazards from vases.
+  hard_distance: 0.3
+  # Leaving the arena as a violation: no obstacle within this distance (the
+  # observation has no absolute position). 2.5 is almost never reached inside
+  # of the arena and about 1.75 m beyond its edge.
+  max_distance: 2.5
+  # R requires an obstacle within this distance: a buffer of 0.3 to leaving the
+  # arena, more than the 0.25 that the robot coasts from 0.5 m/s. On average,
+  # 0.3% of the arena is farther from every obstacle (at most 8%).
+  recovery_max_distance: 2.2
+  # Starts. A deadlock of the filter is the robot stopped where the prior never
+  # learned to act, so every place the robot can stop has to be a start: 35% of
+  # the episodes start at rest, 15% slow (up to recovery_speed along the
+  # heading, turning up to 1 rad/s) and 15% turning in place (up to spin_speed
+  # along the heading, turning up to reset_angular_velocity), at a distance to
+  # the closest obstacle from start_bands (lower, upper, weight): around the
+  # obstacle edge of R on both sides, anywhere in R, and around its edge to
+  # leaving the arena. The other 35% start from the layout, in motion along the
+  # heading (align_velocity), as the robot can only thrust along it. These
+  # replace far_start_prob (starts 2.2-2.5 from the obstacles) and
+  # near_start_prob (slow starts 0.5-0.8). Half of the deadlocks of the filter
+  # with the priors before spin starts were the prior turning in place in R
+  # (up to 3 rad/s, below 0.17 m/s), which 0.1-0.8% of the starts covered.
+  far_start_prob: 0.0
+  near_start_prob: 0.0
+  stop_start_prob: 0.35
+  slow_start_prob: 0.15
+  spin_start_prob: 0.15
+  spin_speed: 0.15
+  start_bands: [[0.31, 0.8, 0.5], [0.5, 2.2, 0.3], [2.0, 2.49, 0.2]]
+  align_velocity: true
+  # A recovery needs the robot in R at the end of 10 control steps in a row
+  # (0.8 s), instead of entering R once. Otherwise the prior never learns to
+  # stay in R, and its Q_R hardly sees the states inside R where it parks the
+  # robot, which deadlocked the filter. The count is not an input of the prior.
+  recovery_dwell: 10
   # The nominal robot reaches 1.5 m/s and 3 rad/s.
   reset_speed: 1.5
   reset_angular_velocity: 3.0
+  # Steering that follows the command (see go_to_goal.stabilize_steering).
+  # Without it, small steering commands do not turn the robot.
+  stable_steering: true
+  # Thrust proportional to the command (see go_to_goal.linearize_thrust).
+  # Without it, every command above 0.05 gives the full force.
+  linear_thrust: true
 
 # The horizon is a true terminal state (no bootstrapping).
 terminate_on_timeout: true

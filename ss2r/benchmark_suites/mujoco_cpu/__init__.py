@@ -4,9 +4,13 @@ from typing import Any, Callable, Mapping
 from ss2r.benchmark_suites.mujoco_cpu import cyberrunner, cyberrunner_rig
 from ss2r.benchmark_suites.mujoco_cpu.cartpole import CartpoleSwingupCPU, RealEnv
 from ss2r.benchmark_suites.mujoco_cpu.go_to_goal import GoToGoalCPU
+from ss2r.benchmark_suites.mujoco_cpu.humanoid import HumanoidWalkCPU
 from ss2r.benchmark_suites.mujoco_cpu.walker import WalkerWalkCPU
 from ss2r.benchmark_suites.mujoco_playground.cartpole import (
     recovery as cartpole_recovery,
+)
+from ss2r.benchmark_suites.mujoco_playground.humanoid import (
+    recovery as humanoid_recovery,
 )
 from ss2r.benchmark_suites.mujoco_playground.walker import (
     recovery as walker_recovery,
@@ -18,6 +22,7 @@ _envs = {
     "CyberRunnerCPU": cyberrunner.CyberRunnerCPU,
     "CyberRunnerRig": cyberrunner_rig.CyberRunnerRig,
     "GoToGoalCPU": GoToGoalCPU,
+    "HumanoidWalkCPU": HumanoidWalkCPU,
     "WalkerWalkCPU": WalkerWalkCPU,
 }
 
@@ -58,10 +63,15 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
             recovery_distance=task_params["recovery_distance"],
             recovery_speed=task_params["recovery_speed"],
             hard_distance=task_params["hard_distance"],
+            max_distance=task_params.get("max_distance"),
+            recovery_max_distance=task_params.get("recovery_max_distance"),
+            stop_speed=task_params.get("stop_speed"),
+            stop_angular_velocity=task_params.get("stop_angular_velocity"),
         )
         violates_fn = functools.partial(
             go_to_goal_recovery.violates,
             hard_distance=task_params["hard_distance"],
+            max_distance=task_params.get("max_distance"),
         )
     elif task_name == "WalkerWalkCPU":
         recovery_reward_fn = functools.partial(
@@ -77,6 +87,19 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
         )
     elif task_name in ("CyberRunnerCPU", "CyberRunnerRig"):
         recovery_reward_fn, violates_fn = cyberrunner.recovery_fns(task_params)
+    elif task_name == "HumanoidWalkCPU":
+        hard_bounds = dict(
+            hard_upright=task_params["hard_upright"],
+            hard_head_height=task_params["hard_head_height"],
+        )
+        recovery_reward_fn = functools.partial(
+            humanoid_recovery.recovery_reward_fn,
+            recovery_upright=task_params["recovery_upright"],
+            recovery_head_height=task_params["recovery_head_height"],
+            recovery_tilt_rate=task_params["recovery_tilt_rate"],
+            **hard_bounds,
+        )
+        violates_fn = functools.partial(humanoid_recovery.violates, **hard_bounds)
     else:
         raise ValueError(f"Unknown CPU environment {task_name}")
     return recovery_reward_fn, violates_fn

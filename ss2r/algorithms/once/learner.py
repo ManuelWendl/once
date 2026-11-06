@@ -41,6 +41,7 @@ def make_dummy_transition(
         policy_extras = {
             "behavior_action": jnp.zeros((action_size,)),
             "intervention": jnp.zeros(()),
+            "recovery_dwell": jnp.zeros(()),
         }
     extras = {
         "state_extras": {
@@ -77,6 +78,9 @@ def make_learner(
     model_updates = c["model_grad_updates_per_step"]
     critic_updates = c["critic_grad_updates_per_step"]
     recovery_updates = c["recovery_grad_updates_per_step"]
+    # In the task model rollouts, an intervention executes the action of the
+    # prior and continues, instead of terminating the rollout.
+    intervention_continue = c.get("intervention_continue", False)
     num_actor_updates = -(-critic_updates // c["num_critic_updates_per_actor_update"])
     num_task_transitions = c["num_model_rollouts"] * c["unroll_length"]
     if num_task_transitions < c["sac_batch_size"] * critic_updates:
@@ -86,6 +90,8 @@ def make_learner(
         )
     recovery_threshold = c["recovery_threshold"]
     recovery_horizon = c["recovery_horizon"]
+    # Steps in a row the system has to end in R for a recovery, as for the prior.
+    recovery_dwell = c.get("recovery_dwell", 1)
     policy_network = mbpo_network.policy_network
     task_q_network = mbpo_network.qr_network
     model_network = mbpo_network.model_network
@@ -129,7 +135,9 @@ def make_learner(
         pessimistic_q=c["pessimistic_q"] if c["use_bro"] else True
     )
     recovery_q_transform = PessimisticReward(
-        penalty_scale=c["penalty_scale"], margin=c["margin"]
+        penalty_scale=c["penalty_scale"],
+        margin=c["margin"],
+        bootstrap_mode=c.get("recovery_bootstrap_mode", False),
     )
     alpha_update = gradients.gradient_update_fn(
         alpha_loss, alpha_optimizer, pmap_axis_name=None
@@ -229,6 +237,7 @@ def make_learner(
         recovery_rollout_state = RecoveryRolloutState(  # type: ignore
             obs=jnp.zeros((c["num_recovery_rollouts"], observation_size)),
             step=jnp.zeros((c["num_recovery_rollouts"],), jnp.int32),
+            dwell=jnp.zeros((c["num_recovery_rollouts"],), jnp.int32),
         )
         return (
             training_state,
@@ -306,9 +315,6 @@ def make_learner(
                 obs,
             )
             action = action_distribution.sample(logits, key_action)
-            next_obs_mean, next_obs_sample, reward, disagreement = predict(
-                training_state, obs, action, key_model
-            )
             q_r = recovery_q_network.apply(
                 training_state.recovery_normalizer_params,
                 training_state.recovery_q_params,
@@ -316,14 +322,41 @@ def make_learner(
                 action,
             ).mean(axis=-1)
             # The recovery prior takes over when it might not be able to recover
-            # anymore. The behavior gets the worst task reward and terminates.
+            # anymore.
             intervention = q_r < recovery_threshold
-            terminated = intervention | violates_fn(next_obs_mean)
-            task_reward = jnp.where(
-                terminated,
-                c["intervention_task_reward"],
-                reward + c["optimism"] * disagreement,
-            )
+            if intervention_continue:
+                # As on the system: the action of the prior is executed and the
+                # rollout continues. The behavior gets the intervention task
+                # reward on top, and terminates only on a violation.
+                prior_logits = recovery_policy_network.apply(
+                    training_state.recovery_normalizer_params,
+                    training_state.recovery_policy_params,
+                    obs,
+                )
+                prior_action = recovery_action_distribution.mode(prior_logits)
+                executed = jnp.where(intervention[:, None], prior_action, action)
+                next_obs_mean, next_obs_sample, reward, disagreement = predict(
+                    training_state, obs, executed, key_model
+                )
+                terminated = violates_fn(next_obs_mean)
+                task_reward = jnp.where(
+                    terminated,
+                    c["intervention_task_reward"],
+                    reward
+                    + c["optimism"] * disagreement
+                    + intervention * c["intervention_task_reward"],
+                )
+            else:
+                next_obs_mean, next_obs_sample, reward, disagreement = predict(
+                    training_state, obs, action, key_model
+                )
+                # The behavior gets the worst task reward and terminates.
+                terminated = intervention | violates_fn(next_obs_mean)
+                task_reward = jnp.where(
+                    terminated,
+                    c["intervention_task_reward"],
+                    reward + c["optimism"] * disagreement,
+                )
             transitions = Transition(
                 observation=obs,
                 action=action,
@@ -437,6 +470,9 @@ def make_learner(
 
         With `recovery_restart_rollouts`, all rollouts start anew in every call:
         the model is never unrolled for more than `recovery_unroll_length` steps.
+
+        A rollout recovers once `recovery_dwell` steps in a row ended in R,
+        counted from the steps the real system was in R at the start state.
         """
         if c["recovery_restart_rollouts"]:
             rollout_state = rollout_state.replace(  # type: ignore
@@ -455,7 +491,11 @@ def make_learner(
                 training_state.recovery_policy_params,
                 obs,
             )
-            action = recovery_action_distribution.sample(logits, key_action)
+            if c.get("recovery_bootstrap_mode", False):
+                # As the filter: the most likely action of the prior.
+                action = recovery_action_distribution.mode(logits)
+            else:
+                action = recovery_action_distribution.sample(logits, key_action)
             start_extras = start.extras["policy_extras"]
             action = jnp.where(
                 is_start[:, None], start_extras["behavior_action"], action
@@ -467,7 +507,14 @@ def make_learner(
             next_obs = jnp.where(is_real[:, None], start.next_observation, next_obs)
             valid = jnp.isfinite(next_obs).all(axis=-1)
             next_obs = jnp.where(valid[:, None], next_obs, obs)
-            recovery_reward = recovery_reward_fn(next_obs) * valid
+            dwell = jnp.where(
+                is_start,
+                start_extras["recovery_dwell"].astype(jnp.int32),
+                rollout_state.dwell,
+            )
+            in_recovery = recovery_reward_fn(next_obs) * valid
+            dwell = jnp.where(in_recovery > 0.0, dwell + 1, 0)
+            recovery_reward = (dwell >= recovery_dwell).astype(jnp.float32)
             violated = violates_fn(next_obs) | ~valid
             step = rollout_state.step + 1
             # Reaching the horizon is a true terminal state, no bootstrapping.
@@ -489,7 +536,9 @@ def make_learner(
                 },
             )
             rollout_state = RecoveryRolloutState(  # type: ignore
-                obs=next_obs, step=jnp.where(done, 0, step)
+                obs=next_obs,
+                step=jnp.where(done, 0, step),
+                dwell=jnp.where(done, 0, dwell),
             )
             metrics = {
                 "recovery_reached": recovery_reward.mean(),

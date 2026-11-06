@@ -8,6 +8,8 @@ sensors from the back, such that they hold with and without
 they can be shared between jax (simulation, learned model) and numpy code.
 """
 
+from typing import Sequence
+
 import jax
 import jax.numpy as jp
 from mujoco_playground._src import mjx_env
@@ -17,6 +19,7 @@ from ss2r.benchmark_suites.safety_gym import go_to_goal, lidar
 
 _OBSTACLE_LIDAR = slice(0, lidar.NUM_LIDAR_BINS)
 _VELOCIMETER = slice(-5, -3)
+_GYRO = -3
 
 # Distances are measured between the centers of the robot and of an obstacle.
 # Hazards have a radius of 0.2 and have a cost when the center of the robot is
@@ -28,6 +31,14 @@ HARD_DISTANCE = 0.35
 # that it can always stop inside of the buffer.
 RECOVERY_DISTANCE = 0.5
 RECOVERY_SPEED = 0.5
+# Leaving the arena: the arena has no walls, and beyond the range of the lidar
+# the robot sees neither the obstacles nor the goal. The observation has no
+# absolute position, so leaving is detected as being farther than this from
+# every obstacle; off (None) by default.
+MAX_DISTANCE = None
+# R requires an obstacle within this distance: a buffer to leaving the arena,
+# as RECOVERY_DISTANCE is to the hard constraint. Off (None) by default.
+RECOVERY_MAX_DISTANCE = None
 # The nominal robot reaches 1.5 m/s and 3 rad/s.
 RESET_SPEED = 1.5
 RESET_ANGULAR_VELOCITY = 3.0
@@ -47,20 +58,55 @@ def speed(obs):
     return (obs[..., _VELOCIMETER] ** 2).sum(axis=-1) ** 0.5
 
 
-def violates(obs, hard_distance: float = HARD_DISTANCE):
-    """Whether the hard constraint on the distance to the obstacles is violated."""
-    return obstacle_distance(obs) < hard_distance
+def angular_speed(obs):
+    """Turning rate of the robot, in either direction."""
+    return abs(obs[..., _GYRO])
+
+
+def out_of_arena(obs, max_distance: float | None = MAX_DISTANCE):
+    """Whether the robot left the arena: no obstacle within `max_distance`."""
+    if max_distance is None:
+        # Never: the distance saturates at the range of the lidar.
+        return obstacle_distance(obs) > lidar.LIDAR_MAX_DIST
+    return obstacle_distance(obs) >= max_distance
+
+
+def violates(
+    obs,
+    hard_distance: float = HARD_DISTANCE,
+    max_distance: float | None = MAX_DISTANCE,
+):
+    """Whether the hard constraint on the distance to the obstacles is violated:
+    too close to an obstacle or, with `max_distance`, out of the arena."""
+    return (obstacle_distance(obs) < hard_distance) | out_of_arena(obs, max_distance)
 
 
 def in_recovery_set(
     obs,
     recovery_distance: float = RECOVERY_DISTANCE,
     recovery_speed: float = RECOVERY_SPEED,
+    max_distance: float | None = MAX_DISTANCE,
+    recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
+    stop_speed: float | None = None,
+    stop_angular_velocity: float | None = None,
 ):
-    """Whether the robot is in the safe operable region R."""
-    return (obstacle_distance(obs) >= recovery_distance) & (
-        speed(obs) <= recovery_speed
+    """Whether the robot is in the safe operable region R.
+
+    With `stop_speed` and `stop_angular_velocity`, R also requires the robot to
+    be stopped: neither moving nor turning faster than these.
+    """
+    inside = (
+        (obstacle_distance(obs) >= recovery_distance)
+        & (speed(obs) <= recovery_speed)
+        & ~out_of_arena(obs, max_distance)
     )
+    if recovery_max_distance is not None:
+        inside = inside & (obstacle_distance(obs) <= recovery_max_distance)
+    if stop_speed is not None:
+        inside = inside & (speed(obs) <= stop_speed)
+    if stop_angular_velocity is not None:
+        inside = inside & (angular_speed(obs) <= stop_angular_velocity)
+    return inside
 
 
 def recovery_reward_fn(
@@ -68,10 +114,22 @@ def recovery_reward_fn(
     recovery_distance: float = RECOVERY_DISTANCE,
     recovery_speed: float = RECOVERY_SPEED,
     hard_distance: float = HARD_DISTANCE,
+    max_distance: float | None = MAX_DISTANCE,
+    recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
+    stop_speed: float | None = None,
+    stop_angular_velocity: float | None = None,
 ):
     """1 if the robot entered R, 0 otherwise. Not to be mixed with the task reward."""
-    reached = in_recovery_set(next_obs, recovery_distance, recovery_speed)
-    reached = reached & ~violates(next_obs, hard_distance)
+    reached = in_recovery_set(
+        next_obs,
+        recovery_distance,
+        recovery_speed,
+        max_distance,
+        recovery_max_distance,
+        stop_speed,
+        stop_angular_velocity,
+    )
+    reached = reached & ~violates(next_obs, hard_distance, max_distance)
     return reached.astype("float32")
 
 
@@ -91,16 +149,65 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         recovery_distance: float = RECOVERY_DISTANCE,
         recovery_speed: float = RECOVERY_SPEED,
         hard_distance: float = HARD_DISTANCE,
+        max_distance: float | None = MAX_DISTANCE,
+        recovery_max_distance: float | None = RECOVERY_MAX_DISTANCE,
+        stop_speed: float | None = None,
+        stop_angular_velocity: float | None = None,
         reset_speed: float = RESET_SPEED,
         reset_angular_velocity: float = RESET_ANGULAR_VELOCITY,
+        far_start_prob: float = 0.0,
+        near_start_prob: float = 0.0,
+        near_start_width: float = 0.3,
+        stop_start_prob: float = 0.0,
+        slow_start_prob: float = 0.0,
+        start_bands: Sequence[Sequence[float]] = ((0.36, 0.8, 1.0),),
+        align_velocity: bool = False,
+        heading_spread: float = 0.35,
+        slow_angular_velocity: float = 1.0,
+        spin_start_prob: float = 0.0,
+        spin_speed: float = 0.15,
+        recovery_dwell: int = 1,
+        violation_on_cost: bool = False,
+        action_repeat: int = 1,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self._recovery_distance = recovery_distance
         self._recovery_speed = recovery_speed
         self._hard_distance = hard_distance
+        self._max_distance = max_distance
+        self._recovery_max_distance = recovery_max_distance
+        # R also requires the robot stopped (see in_recovery_set); off if None.
+        self._stop_speed = stop_speed
+        self._stop_angular_velocity = stop_angular_velocity
         self._reset_speed = reset_speed
         self._reset_angular_velocity = reset_angular_velocity
+        self._far_start_prob = far_start_prob
+        self._near_start_prob = near_start_prob
+        self._near_start_width = near_start_width
+        # Starts at rest and slow, at a distance to the closest obstacle from
+        # one of start_bands: (lower, upper, weight). With align_velocity, the
+        # other starts move along the heading (forward or backward, within
+        # heading_spread) as the robot does, instead of in any direction.
+        self._stop_start_prob = stop_start_prob
+        self._slow_start_prob = slow_start_prob
+        self._start_bands = tuple(tuple(float(x) for x in band) for band in start_bands)
+        self._align_velocity = align_velocity
+        self._heading_spread = heading_spread
+        self._slow_angular_velocity = slow_angular_velocity
+        # Starts turning in place, with spin_start_prob: up to spin_speed along
+        # the heading and up to reset_angular_velocity, in the same bands.
+        self._spin_start_prob = spin_start_prob
+        self._spin_speed = spin_speed
+        # A recovery needs the robot in R at the end of this many control steps
+        # in a row. One control step is action_repeat steps of this environment,
+        # as the episode wrapper repeats the action.
+        self._recovery_dwell = recovery_dwell
+        # The violation is the cost of safety gym (a hazard or the vase touched,
+        # or the vase moved) at any step of a control step, or leaving the arena,
+        # instead of a distance to the closest obstacle below hard_distance.
+        self._violation_on_cost = violation_on_cost
+        self._action_repeat = action_repeat
         # Start as close to the obstacles as the hard constraint allows.
         obstacle_keepouts = [
             self.spec[name].keepout
@@ -118,6 +225,9 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         state = super().reset(rng)
         speed_ = jax.random.uniform(rng_speed, (), maxval=self._reset_speed)
         direction = jax.random.uniform(rng_direction, (), minval=-jp.pi, maxval=jp.pi)
+        if self._align_velocity:
+            heading = state.data.qpos[jp.asarray(self._robot_qpos_ids)[2]]
+            direction = self._along_heading(jax.random.fold_in(rng, 3), heading)
         angular_velocity = jax.random.uniform(
             rng_angular,
             (),
@@ -133,31 +243,235 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
                 ]
             )
         )
+        far_start = (
+            self._far_start_prob > 0.0
+            and self._recovery_max_distance is not None
+            and self._max_distance is not None
+        )
+        near_start = self._near_start_prob > 0.0
+        stop_start = (
+            self._stop_start_prob > 0.0
+            or self._slow_start_prob > 0.0
+            or self._spin_start_prob > 0.0
+        )
+        qpos = state.data.qpos
+        far = jp.zeros((), bool)
+        near = jp.zeros((), bool)
+        if far_start:
+            qpos, far = self._far_start(jax.random.fold_in(rng, 1), state.data)
+        if near_start:
+            qpos, qvel, near = self._near_start(
+                jax.random.fold_in(rng, 2), state.data, qpos, qvel, far
+            )
+        if stop_start:
+            qpos, qvel = self._stop_start(
+                jax.random.fold_in(rng, 4), state.data, qpos, qvel, far | near
+            )
         data = mjx_data.init(
             self.mjx_model,
-            qpos=state.data.qpos,
+            qpos=qpos,
             qvel=qvel,
             mocap_pos=state.data.mocap_pos,
             mocap_quat=state.data.mocap_quat,
         )
+        if far_start or near_start or stop_start:
+            state.info["last_goal_dist"] = jp.linalg.norm(self._robot_to_goal(data)[:2])
         obs = self.get_obs(data)
         state.info["recovery_reward"] = jp.zeros(())
+        # Control steps in a row that ended in R, and the step within the
+        # current control step.
+        state.info["recovery_dwell"] = jp.zeros((), jp.int32)
+        state.info["substep"] = jp.zeros((), jp.int32)
+        if self._violation_on_cost:
+            # Cost within the current control step.
+            state.info["step_cost"] = jp.zeros(())
         state.metrics["recovery/reached"] = jp.zeros(())
         state.metrics["recovery/violated"] = jp.zeros(())
         return state.replace(data=data, obs=obs)  # type: ignore
 
+    def _sample_position(
+        self, rng: jax.Array, data, lower: float, upper: float
+    ) -> tuple[jax.Array, jax.Array]:
+        """A position from `lower` to `upper` from the closest obstacle, and
+        whether one was found among the candidates."""
+        obstacles = [
+            data.qpos[jp.asarray(ids[:2])][None] for ids in self._vases_qpos_ids
+        ]
+        if self._hazard_mocap_id:
+            obstacles.append(data.mocap_pos[jp.asarray(self._hazard_mocap_id), :2])
+        obstacles = jp.concatenate(obstacles)
+        bound = max(go_to_goal._EXTENTS) + upper
+        candidates = jax.random.uniform(rng, (512, 2), minval=-bound, maxval=bound)
+        distance = jp.linalg.norm(candidates[:, None] - obstacles[None], axis=-1)
+        distance = distance.min(-1)
+        valid = (distance >= lower) & (distance < upper)
+        return candidates[jp.argmax(valid)], valid.any()
+
+    def _far_start(self, rng: jax.Array, data) -> tuple[jax.Array, jax.Array]:
+        """With probability far_start_prob, moves the robot outside of R, far from
+        the obstacles: between recovery_max_distance and max_distance from the
+        closest one. The layout places the robot close to the obstacles, such that
+        the prior would otherwise never learn to return from there."""
+        assert self._recovery_max_distance is not None
+        assert self._max_distance is not None
+        rng_use, rng_xy = jax.random.split(rng)
+        xy, found = self._sample_position(
+            rng_xy, data, self._recovery_max_distance, self._max_distance
+        )
+        use = (jax.random.uniform(rng_use) < self._far_start_prob) & found
+        xy_ids = jp.asarray(self._robot_qpos_ids)[:2]
+        xy = jp.where(use, xy, data.qpos[xy_ids])
+        return data.qpos.at[xy_ids].set(xy), use
+
+    def _near_start(
+        self, rng: jax.Array, data, qpos: jax.Array, qvel: jax.Array, far: jax.Array
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
+        """With probability near_start_prob, of the episodes that do not start far,
+        starts the robot inside of R close to the obstacles: from recovery_distance
+        to near_start_width beyond it, slow and not rotating. The prior parks the
+        robot there after recovering, and its Q_R hardly sees these states
+        otherwise: episodes end on entering R. Its Q_R was below 0.9 for every
+        action at 11% of the parking spots 0.5-0.6 from an obstacle."""
+        rng_use, rng_xy, rng_speed, rng_direction = jax.random.split(rng, 4)
+        lower = self._recovery_distance
+        xy, found = self._sample_position(
+            rng_xy, data, lower, lower + self._near_start_width
+        )
+        use = (jax.random.uniform(rng_use) < self._near_start_prob) & found & ~far
+        speed_ = jax.random.uniform(rng_speed, (), maxval=self._recovery_speed)
+        direction = jax.random.uniform(rng_direction, (), minval=-jp.pi, maxval=jp.pi)
+        velocity = jp.hstack(
+            [speed_ * jp.cos(direction), speed_ * jp.sin(direction), 0.0]
+        )
+        xy_ids = jp.asarray(self._robot_qpos_ids)[:2]
+        qpos = qpos.at[xy_ids].set(jp.where(use, xy, qpos[xy_ids]))
+        qvel_ids = jp.asarray(self._robot_qvel_ids)
+        qvel = qvel.at[qvel_ids].set(jp.where(use, velocity, qvel[qvel_ids]))
+        return qpos, qvel, use
+
+    def _along_heading(self, rng: jax.Array, heading: jax.Array) -> jax.Array:
+        """A direction of motion along the heading, forward or backward, within
+        heading_spread: the robot can only thrust along its heading."""
+        rng_back, rng_spread = jax.random.split(rng)
+        backward = jax.random.uniform(rng_back) < 0.5
+        spread = jax.random.uniform(
+            rng_spread, (), minval=-self._heading_spread, maxval=self._heading_spread
+        )
+        return heading + jp.where(backward, jp.pi, 0.0) + spread
+
+    def _stop_start(
+        self, rng: jax.Array, data, qpos: jax.Array, qvel: jax.Array, taken: jax.Array
+    ) -> tuple[jax.Array, jax.Array]:
+        """With probability stop_start_prob, of the episodes that do not start far
+        or near, starts the robot at rest, with slow_start_prob slow (up to
+        recovery_speed along its heading, turning up to slow_angular_velocity),
+        and with spin_start_prob turning in place (up to spin_speed along its
+        heading, turning up to reset_angular_velocity). The distance to the
+        closest obstacle is drawn from one of start_bands.
+
+        A deadlock of the filter is the robot stopped where the prior never
+        learned to act, so every place the robot can stop has to be a start."""
+        keys = jax.random.split(rng, 6)
+        u = jax.random.uniform(keys[0])
+        rest = (u < self._stop_start_prob) & ~taken
+        slow = (
+            (u >= self._stop_start_prob)
+            & (u < self._stop_start_prob + self._slow_start_prob)
+            & ~taken
+        )
+        spin_from = self._stop_start_prob + self._slow_start_prob
+        spin = (u >= spin_from) & (u < spin_from + self._spin_start_prob) & ~taken
+        bands = jp.asarray(self._start_bands)
+        band = jax.random.choice(keys[1], len(self._start_bands), p=bands[:, 2])
+        xy, found = self._sample_position(keys[2], data, bands[band, 0], bands[band, 1])
+        use = (rest | slow | spin) & found
+        heading = qpos[jp.asarray(self._robot_qpos_ids)[2]]
+        speed_ = jp.where(
+            slow,
+            jax.random.uniform(keys[3], (), maxval=self._recovery_speed),
+            0.0,
+        )
+        direction = self._along_heading(keys[4], heading)
+        angular_velocity = jp.where(
+            slow,
+            jax.random.uniform(
+                keys[5],
+                (),
+                minval=-self._slow_angular_velocity,
+                maxval=self._slow_angular_velocity,
+            ),
+            0.0,
+        )
+        if self._spin_start_prob > 0.0:
+            rng_spin_speed, rng_spin = jax.random.split(jax.random.fold_in(rng, 1))
+            speed_ = jp.where(
+                spin,
+                jax.random.uniform(rng_spin_speed, (), maxval=self._spin_speed),
+                speed_,
+            )
+            angular_velocity = jp.where(
+                spin,
+                jax.random.uniform(
+                    rng_spin,
+                    (),
+                    minval=-self._reset_angular_velocity,
+                    maxval=self._reset_angular_velocity,
+                ),
+                angular_velocity,
+            )
+        velocity = jp.hstack(
+            [speed_ * jp.cos(direction), speed_ * jp.sin(direction), angular_velocity]
+        )
+        xy_ids = jp.asarray(self._robot_qpos_ids)[:2]
+        qpos = qpos.at[xy_ids].set(jp.where(use, xy, qpos[xy_ids]))
+        qvel_ids = jp.asarray(self._robot_qvel_ids)
+        qvel = qvel.at[qvel_ids].set(jp.where(use, velocity, qvel[qvel_ids]))
+        return qpos, qvel
+
     def step(self, state: go_to_goal.State, action: jax.Array) -> go_to_goal.State:
+        dwell, substep = state.info["recovery_dwell"], state.info["substep"]
+        # The auto reset does not reset the info: a new episode starts with zero
+        # steps. The step within the control step needs no reset, as episodes
+        # end with a control step.
+        if "steps" in state.info:
+            dwell = jp.where(state.info["steps"] == 0, 0, dwell)
         nstate = super().step(state, action)
-        violated = violates(nstate.obs, self._hard_distance)
-        recovery_reward = recovery_reward_fn(
+        if self._violation_on_cost:
+            # Kept until the end of the control step, which is the only step the
+            # episode wrapper keeps.
+            step_cost = jp.where(substep == 0, 0.0, state.info["step_cost"])
+            step_cost = step_cost + nstate.info["cost"]
+            nstate.info["step_cost"] = step_cost
+            violated = (step_cost > 0.0) | out_of_arena(nstate.obs, self._max_distance)
+        else:
+            violated = violates(nstate.obs, self._hard_distance, self._max_distance)
+        in_recovery = recovery_reward_fn(
             nstate.obs,
             self._recovery_distance,
             self._recovery_speed,
             self._hard_distance,
+            self._max_distance,
+            self._recovery_max_distance,
+            self._stop_speed,
+            self._stop_angular_velocity,
         )
+        if self._violation_on_cost:
+            in_recovery = in_recovery * (1.0 - violated.astype(in_recovery.dtype))
+        # Recovered once the robot ended recovery_dwell control steps in a row in
+        # R. Only the end of a control step counts, as only its last step is kept
+        # by the episode wrapper.
+        end_of_control_step = substep == self._action_repeat - 1
+        dwell = jp.where(
+            end_of_control_step, jp.where(in_recovery > 0.0, dwell + 1, 0), dwell
+        )
+        recovery_reward = (
+            end_of_control_step & (dwell >= self._recovery_dwell)
+        ).astype(jp.float32)
+        terminate = (recovery_reward > 0.0) | violated
+        nstate.info["recovery_dwell"] = jp.where(terminate, 0, dwell)
+        nstate.info["substep"] = (substep + 1) % self._action_repeat
         nstate.info["recovery_reward"] = recovery_reward
         nstate.metrics["recovery/reached"] = recovery_reward
         nstate.metrics["recovery/violated"] = violated.astype(jp.float32)
-        terminate = (recovery_reward > 0.0) | violated
         done = jp.maximum(nstate.done, terminate.astype(nstate.done.dtype))
         return nstate.replace(done=done)  # type: ignore

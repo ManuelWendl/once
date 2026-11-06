@@ -1,0 +1,46 @@
+# @package _global_
+defaults:
+  - override /agent: once
+  - override /environment: humanoid_walk_cpu
+  - _self_
+
+# The recovery prior is trained with humanoid_recovery_prior. Its bounds are set
+# in environment/humanoid_recovery.yaml and have to match the ones below.
+prior:
+  experiment: humanoid_recovery_prior
+  # No prior trained yet: null trains a new one in the run. Set the path of a
+  # checkpoint (relative to the directory train_once.py is started from) or
+  # prior.wandb_id to reuse one.
+  checkpoint_path: null
+
+training:
+  # An environment step takes 0.025 seconds: 1000000 steps are about 7 hours.
+  # Humanoid walk needs many more steps than walker walk (200000).
+  num_timesteps: 1000000
+  action_repeat: 1
+
+environment:
+  task_params:
+    recovery_upright: 0.9
+    recovery_head_height: 1.4
+    recovery_tilt_rate: 1.0
+    hard_upright: 0.5
+    hard_head_height: 1.0
+
+# As walker_once, not tuned for the humanoid yet. margin and penalty_scale act
+# on the disagreement of the learned model, which is different for the
+# humanoid.
+agent:
+  # Exploration bonus on the task reward.
+  optimism: 0.5
+  num_critic_updates_per_actor_update: 2
+  min_replay_size: 5000
+  recovery_threshold: 0.95
+  # Horizon of humanoid_recovery_prior.
+  recovery_horizon: 100
+  recovery_restart_rollouts: true
+  pessimistic_q: true
+  init_normalizer_from_prior: true
+  margin: 0.2
+  penalty_scale: 0.2
+  init_behavior_from_prior: true

@@ -1,0 +1,65 @@
+defaults:
+  - mujoco_playground_base
+
+task_name: HumanoidRecovery
+task_params:
+  action_repeat: 1
+  ctrl_dt: 0.025
+  episode_length: 1000
+  sim_dt: 0.0025
+  vision: false
+  # Safe operable region R: standing up straight, with the torso tilted by less
+  # than about 25 degrees, the head at least at the height of the standing
+  # reward (1.4 m, standing straight it is at 1.475 m) and only slowly tilting.
+  recovery_upright: 0.9
+  recovery_head_height: 1.4
+  recovery_tilt_rate: 1.0
+  # Hard constraint: the humanoid falls over when its torso tilts by more than
+  # 60 degrees or its head drops below 1 m (kneeling is at about 1.07 m).
+  hard_upright: 0.5
+  hard_head_height: 1.0
+  # Consecutive steps in R until the humanoid counts as recovered. 1 ends an
+  # episode on entering R; more also require staying in R.
+  recovery_dwell_steps: 10
+  # Initial states, not yet fitted to the states of walking (as for the
+  # walker): a random heading, the torso tilted by up to 0.5 rad, the joints
+  # within half of their ranges (which covers walking: hips up to 55 degrees,
+  # knees up to 80 degrees). With these, less than 1% of the poses penetrate
+  # themselves by more than 1 cm, and 2% have already fallen over, which start
+  # near standing instead.
+  reset_tilt: 0.5
+  reset_joint_range: 0.5
+  # Walking is at 1 m/s (playground's WALK_SPEED).
+  reset_horizontal_velocity: 1.5
+  reset_vertical_velocity: 0.5
+  reset_angular_velocity: 2.0
+  reset_joint_velocity: 5.0
+  # A share of the starts near standing, the initial state of the task (in R):
+  # without them, the prior never acts from standing and does not learn to keep
+  # the humanoid up. Noise of [angles, velocities] around standing.
+  reset_standing_share: 0.2
+  reset_standing_noise: [0.05, 0.1]
+
+# The horizon is a true terminal state (no bootstrapping).
+terminate_on_timeout: true
+# Sample a new initial state on every reset.
+resample_resets: true
+
+# Sample uniformly around the nominal value. The gear offsets are centered on
+# the ones of the real system (humanoid_walk_cpu.yaml, 10% stronger hips and
+# knees), +-50% of the offset as for the walker (walker_recovery.yaml).
+train_params:
+  friction: [0., 0.]
+  gear_hip:
+    x: [2., 6.]
+    y: [6., 18.]
+    z: [2., 6.]
+  gear_knee: [4., 12.]
+
+eval_params:
+  friction: [0., 0.]
+  gear_hip:
+    x: [2., 6.]
+    y: [6., 18.]
+    z: [2., 6.]
+  gear_knee: [4., 12.]

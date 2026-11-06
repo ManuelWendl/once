@@ -87,6 +87,13 @@ class GoToGoalCPU:
         recovery_distance: float = recovery.RECOVERY_DISTANCE,
         recovery_speed: float = recovery.RECOVERY_SPEED,
         hard_distance: float = recovery.HARD_DISTANCE,
+        max_distance: float | None = recovery.MAX_DISTANCE,
+        recovery_max_distance: float | None = recovery.RECOVERY_MAX_DISTANCE,
+        stop_speed: float | None = None,
+        stop_angular_velocity: float | None = None,
+        stable_steering: bool = False,
+        linear_thrust: bool = False,
+        violation_on_cost: bool = False,
         action_repeat: int = 1,
         real_params: Mapping[str, Any] | None = None,
         seed: int = 0,
@@ -95,6 +102,10 @@ class GoToGoalCPU:
         self._goal_size = goal_size
         self._spec = go_to_goal.make_objects_spec(num_hazards, num_vases, goal_size)
         mj_spec = mujoco.MjSpec.from_file(filename=str(go_to_goal._XML_PATH), assets={})
+        if stable_steering:
+            go_to_goal.stabilize_steering(mj_spec)
+        if linear_thrust:
+            go_to_goal.linearize_thrust(mj_spec)
         go_to_goal.build_arena(
             mj_spec, layout=_sample_layout(self._rng, self._spec), goal_size=goal_size
         )
@@ -106,6 +117,15 @@ class GoToGoalCPU:
         self._recovery_distance = recovery_distance
         self._recovery_speed = recovery_speed
         self._hard_distance = hard_distance
+        self._max_distance = max_distance
+        self._recovery_max_distance = recovery_max_distance
+        # R also requires the robot stopped (see recovery.in_recovery_set).
+        self._stop_speed = stop_speed
+        self._stop_angular_velocity = stop_angular_velocity
+        # The violation is the cost (a hazard or the vase touched, or the vase
+        # moved) at any step of a control step, or leaving the arena, instead of
+        # a distance to the closest obstacle below hard_distance.
+        self._violation_on_cost = violation_on_cost
         self._robot_body_id = model.body("robot").id
         self._robot_geom_ids = {model.geom("robot").id, model.geom("pointarrow").id}
         self._robot_qpos_ids = go_to_goal._get_qpos_ids(model, ["x", "y", "z"])
@@ -221,15 +241,30 @@ class GoToGoalCPU:
             cost += self._get_cost()
         self._lag_accelerometer(*previous)
         obs = self._get_obs()
-        terminated = bool(recovery.violates(obs, self._hard_distance))
+        if self._violation_on_cost:
+            terminated = cost > 0.0 or bool(
+                recovery.out_of_arena(obs, self._max_distance)
+            )
+        else:
+            terminated = bool(
+                recovery.violates(obs, self._hard_distance, self._max_distance)
+            )
         info: dict[str, Any] = {
             "in_recovery_set": bool(
                 recovery.in_recovery_set(
-                    obs, self._recovery_distance, self._recovery_speed
+                    obs,
+                    self._recovery_distance,
+                    self._recovery_speed,
+                    self._max_distance,
+                    self._recovery_max_distance,
+                    self._stop_speed,
+                    self._stop_angular_velocity,
                 )
             ),
             "cost": cost,
         }
+        if self._max_distance is not None:
+            info["out_of_arena"] = bool(recovery.out_of_arena(obs, self._max_distance))
         return obs, reward, terminated, info
 
     def _goal_distance(self) -> float:

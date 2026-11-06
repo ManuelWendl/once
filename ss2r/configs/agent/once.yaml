@@ -42,6 +42,10 @@ optimism: 0.
 # Task reward given to the behavior when the recovery prior takes over (the
 # worst reward of the environment).
 intervention_task_reward: 0.
+# In the task model rollouts, an intervention executes the action of the prior
+# and the rollout continues, with intervention_task_reward added, as on the
+# system. False: the rollout terminates with intervention_task_reward.
+intervention_continue: false
 # Recovery prior.
 # The recovery prior sees the first this many values of the observation (null: all of
 # them), for a prior trained on a part of the real system's observation.
@@ -53,12 +57,19 @@ penalty_scale: 1.0
 margin: 0.01
 # Finite horizon H of the recovery prior, without discounting.
 recovery_horizon: 25
+# Steps in a row the system has to end in R for a recovery, as in the
+# environment of the prior. 1: entering R once.
+recovery_dwell: 1
 recovery_discounting: 1.0
 recovery_q_learning_rate: 1e-4
 num_recovery_rollouts: 256
 recovery_unroll_length: 4
 # Start all recovery rollouts from real transitions in every learner step
 recovery_restart_rollouts: false
+# Recovery rollouts and the Q_R target follow the most likely action of the
+# prior, as the filter does, instead of a sampled one. To match a prior trained
+# with reward_robustness.bootstrap_mode.
+recovery_bootstrap_mode: false
 recovery_batch_size: 256
 recovery_grad_updates_per_step: 10
 recovery_replay_size: 200000
