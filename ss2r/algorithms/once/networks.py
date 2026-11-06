@@ -17,7 +17,8 @@ def make_networks(
     """Creates the behavior/model networks and the recovery prior networks.
 
     The recovery networks are created exactly as when training the prior, so
-    that its parameters and observation normalization can be used as is.
+    that its parameters and observation normalization can be used as is. With
+    `recovery_observation_size`, they see only the first values of the observation.
     """
     normalize_fn = lambda x, y: x
     if agent_cfg["normalize_observations"]:
@@ -37,11 +38,19 @@ def make_networks(
         n_heads=agent_cfg["n_heads"],
         safe=False,
     )
+    recovery_observation_size = (
+        agent_cfg.get("recovery_observation_size") or observation_size
+    )
     recovery_normalize_fn = lambda x, y: x
     if prior_agent_cfg["normalize_observations"]:
         recovery_normalize_fn = running_statistics.normalize
+    if recovery_observation_size < observation_size:
+        normalize = recovery_normalize_fn
+        recovery_normalize_fn = lambda x, y: normalize(
+            x[..., :recovery_observation_size], y
+        )
     recovery_network = sac_networks.make_sac_networks(
-        observation_size=observation_size,
+        observation_size=recovery_observation_size,
         action_size=action_size,
         preprocess_observations_fn=recovery_normalize_fn,
         policy_hidden_layer_sizes=prior_agent_cfg["policy_hidden_layer_sizes"],

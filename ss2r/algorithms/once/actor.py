@@ -1,7 +1,7 @@
 """Actor of ONCE: runs the policy on the (single, non-episodic) real system."""
 
 import time
-from typing import Any, Callable, Mapping, Tuple
+from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -18,7 +18,10 @@ from ss2r.benchmark_suites.mujoco_cpu import RealEnv
 
 
 def make_policy_step(
-    mbpo_network, recovery_network, observation_size: int
+    mbpo_network,
+    recovery_network,
+    observation_size: int,
+    recovery_observation_size: Optional[int] = None,
 ) -> Tuple[Callable, int]:
     """Creates the policy step, which takes the parameters as one flat vector.
 
@@ -27,7 +30,7 @@ def make_policy_step(
     """
     make_policy = make_recovery_filter_fn(mbpo_network, recovery_network)
     template = make_filter_params_template(
-        mbpo_network, recovery_network, observation_size
+        mbpo_network, recovery_network, observation_size, recovery_observation_size
     )
     flat_template, unravel_fn = ravel_pytree(template)
 
@@ -152,6 +155,13 @@ class Actor:
         stats["in_recovery_set"] += float(info["in_recovery_set"])
         if "cost" in info:
             stats["cost"] = stats.get("cost", 0.0) + float(info["cost"])
+        # Task metrics of the environment: the maxima of some, the sums of its counts.
+        for name, value in info.get("maxima", {}).items():
+            stats[f"maxima/{name}"] = max(stats.get(f"maxima/{name}", value), value)
+        for name, value in info.get("counts", {}).items():
+            stats[f"counts/{name}"] = stats.get(f"counts/{name}", 0.0) + value
+        # Time the system was not under control, which is not the step's.
+        paused = info.get("paused_s", 0.0)
         if "out_of_arena" in info:
             stats["out_of_arena"] = stats.get("out_of_arena", 0.0) + float(
                 info["out_of_arena"]
@@ -159,10 +169,12 @@ class Actor:
         if terminated:
             # The hard constraint was violated, the system has to be reset.
             stats["violations"] += 1
+            reset_start = time.perf_counter()
             next_obs = self.env.reset()
+            paused += time.perf_counter() - reset_start
         self.obs = next_obs
         self.index += 1
-        step_time = time.perf_counter() - start
+        step_time = time.perf_counter() - start - paused
         stats["step_time"] += step_time
         stats["max_step_time"] = max(stats["max_step_time"], step_time)
         if self.index < self.chunk_size:
@@ -172,6 +184,69 @@ class Actor:
         self.stats = _new_stats()
         self.index = 0
         return out
+
+
+class ParamsSource(Protocol):
+    def read(self) -> np.ndarray | None:
+        """The newest parameters if there are new ones, otherwise None. Never blocks."""
+
+
+def make_actor_policy(
+    env: RealEnv, agent_cfg: Mapping[str, Any], prior_agent_cfg: Mapping[str, Any]
+) -> Tuple[Callable, int]:
+    """The policy step of an environment and the size of its flat parameters."""
+    mbpo_network, recovery_network, _ = make_networks(
+        agent_cfg, prior_agent_cfg, env.observation_size, env.action_size
+    )
+    return make_policy_step(
+        mbpo_network,
+        recovery_network,
+        env.observation_size,
+        agent_cfg.get("recovery_observation_size"),
+    )
+
+
+def actor_loop(
+    env: RealEnv,
+    policy_step: Callable,
+    agent_cfg: Mapping[str, Any],
+    seed: int,
+    params_source: ParamsSource,
+    transitions_sink: Any,
+    should_stop: Callable[[], bool],
+    record_state: bool = False,
+) -> None:
+    """Runs the policy on the system, once it has its first parameters, until told to
+    stop. Never waits for the learner."""
+    params = None
+    while params is None:
+        if should_stop():
+            return
+        params = params_source.read()
+    actor = Actor(env, policy_step, agent_cfg["chunk_size"], seed, record_state)
+    actor.set_params(jnp.asarray(params))
+    actor.warmup()
+    # Signal the learner that the actor is ready.
+    transitions_sink.put(None)
+    realtime_factor = agent_cfg["realtime_factor"]
+    period = env.dt / realtime_factor if realtime_factor else 0.0
+    next_tick = time.perf_counter()
+    while not should_stop():
+        # Deploy the newest policy as soon as it is available.
+        params = params_source.read()
+        if params is not None:
+            actor.set_params(jnp.asarray(params))
+        out = actor.step()
+        if out is not None:
+            transitions_sink.put(out)
+        if period:
+            next_tick += period
+            sleep_time = next_tick - time.perf_counter()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            else:
+                actor.stats["overruns"] += 1
+                next_tick = time.perf_counter()
 
 
 def run_actor(
@@ -189,41 +264,19 @@ def run_actor(
     from ss2r.benchmark_suites import mujoco_cpu
 
     env = mujoco_cpu.make(environment_cfg, action_repeat, seed)
-    mbpo_network, recovery_network, _ = make_networks(
-        agent_cfg, prior_agent_cfg, env.observation_size, env.action_size
-    )
-    policy_step, num_params = make_policy_step(
-        mbpo_network, recovery_network, env.observation_size
-    )
+    policy_step, num_params = make_actor_policy(env, agent_cfg, prior_agent_cfg)
     shared_params = SharedParams(num_params, shared_params_name)
-    actor = Actor(env, policy_step, agent_cfg["chunk_size"], seed, record_state)
-    params = None
-    while params is None:
-        params = shared_params.read()
-    actor.set_params(jnp.asarray(params))
-    actor.warmup()
-    # Signal the learner that the actor is ready.
-    transitions_queue.put(None)
-    realtime_factor = agent_cfg["realtime_factor"]
-    period = env.dt / realtime_factor if realtime_factor else 0.0
-    next_tick = time.perf_counter()
     try:
-        while not stop_event.is_set():
-            # Deploy the newest policy as soon as it is available.
-            params = shared_params.read()
-            if params is not None:
-                actor.set_params(jnp.asarray(params))
-            out = actor.step()
-            if out is not None:
-                transitions_queue.put(out)
-            if period:
-                next_tick += period
-                sleep_time = next_tick - time.perf_counter()
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                else:
-                    actor.stats["overruns"] += 1
-                    next_tick = time.perf_counter()
+        actor_loop(
+            env,
+            policy_step,
+            agent_cfg,
+            seed,
+            shared_params,
+            transitions_queue,
+            stop_event.is_set,
+            record_state,
+        )
     finally:
         transitions_queue.cancel_join_thread()
         shared_params.close()

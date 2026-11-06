@@ -1,4 +1,4 @@
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -26,16 +26,18 @@ def make_filter_params_template(
     mbpo_network: MBPONetworks,
     recovery_network: SafeSACNetworks,
     observation_size: int,
+    recovery_observation_size: Optional[int] = None,
 ) -> Any:
     """Parameters with the structure of `get_filter_params`, to (un)flatten them."""
     key = jax.random.PRNGKey(0)
-    normalizer_params = running_statistics.init_state(
-        specs.Array((observation_size,), jnp.dtype("float32"))
+    normalizer_params, recovery_normalizer_params = (
+        running_statistics.init_state(specs.Array((size,), jnp.dtype("float32")))
+        for size in (observation_size, recovery_observation_size or observation_size)
     )
     return (
         normalizer_params,
         mbpo_network.policy_network.init(key),
-        normalizer_params,
+        recovery_normalizer_params,
         recovery_network.policy_network.init(key),
         recovery_network.qr_network.init(key),
         jnp.zeros(()),

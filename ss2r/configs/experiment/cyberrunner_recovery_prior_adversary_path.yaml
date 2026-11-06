@@ -1,0 +1,18 @@
+# @package _global_
+# The adversary recovery prior with the behavior's observation: the history and the 10 path
+# points of environment/cyberrunner_cpu.yaml, such that ONCE's behavior can start from the
+# prior's observation normalizer. SPiDR's copies disagree on the history only (the path points
+# follow the ball position in it), so lambda_ and the margin keep their calibration.
+defaults:
+  - cyberrunner_recovery_prior_adversary
+  - _self_
+
+environment:
+  task_params:
+    num_path_points: 10
+    path_step: 50
+    path_distance: 0.0001
+
+agent:
+  propagation:
+    disagreement_size: 30

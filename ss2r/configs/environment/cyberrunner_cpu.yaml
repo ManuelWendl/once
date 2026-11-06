@@ -1,0 +1,42 @@
+# CyberRunner on MuJoCo C, the real system of ONCE's sim-to-sim runs: the easy maze with the
+# model of the SAC policy we ran on the rig (command cap, ball stiction, joint friction for
+# the motors' dead band), without DC motors.
+domain_name: mujoco_cpu
+
+task_name: CyberRunnerCPU
+task_params:
+  layout: easy
+  ball_stiction: true
+  ctrl_limit: [0.45, 0.55]
+  # Command delay (ms), the centre of the prior's [0, 33.3].
+  delay_ms: 16.65
+  # The behavior's observation: 5 history frames, then 10 path points.
+  history_length: 5
+  num_path_points: 10
+  path_step: 50
+  path_distance: 0.0001
+  num_rays: 32
+  # Path points from the stretch of path the reward sees, not from the nearest point,
+  # which switches through walls with the ball's noise.
+  visible_path: true
+  # No step limit: the ball is put back at the start only at the goal (and after a fall),
+  # such that the behavior keeps learning where it got to.
+  max_episode_steps: null
+  # Safe operable region R, as in environment/cyberrunner_recovery.yaml.
+  recovery_hole_distance: 0.0138
+  recovery_speed: 0.05
+
+# The real system's physics, playing the role of the sim-to-real gap: the centre of the
+# prior's randomization ranges (multipliers, except the tilts in degrees).
+real_params:
+  motor_gain: 1.0
+  motor_time_constant: 1.0
+  motor_speed_limit: 1.0
+  joint_damping: 1.0
+  joint_friction: 2.25
+  ball_friction: 1.0
+  ball_mass: 1.0
+  ball_contact_damping: 1.0
+  gravity_tilt_deg: 0.0
+  ball_static_deg: 1.65
+  ball_rolling_deg: 0.6

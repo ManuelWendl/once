@@ -65,6 +65,7 @@ def wrap_for_brax_training(
     augment_state: bool = False,
     terminate_on_timeout: bool = False,
     resample_resets: bool = False,
+    resample_pool_size: int = 0,
 ) -> mujoco_playground_wrapper.Wrapper:
     """Common wrapper pattern for all brax training agents.
 
@@ -80,6 +81,8 @@ def wrap_for_brax_training(
       terminate_on_timeout: whether reaching the episode length is a true
         terminal state instead of a truncation
       resample_resets: whether to sample a new initial state on every reset
+      resample_pool_size: with resample_resets, initial states sampled per step (for
+        the first envs that are done); 0 samples one for every env
 
     Returns:
       An environment that is wrapped with Episode and AutoReset wrappers.  If the
@@ -103,7 +106,7 @@ def wrap_for_brax_training(
     else:
         env = wrappers.CostEpisodeWrapper(env, episode_length, action_repeat)
     if resample_resets:
-        env = wrappers.ResampleAutoResetWrapper(env)
+        env = wrappers.ResampleAutoResetWrapper(env, resample_pool_size)
     elif hard_resets:
         env = wrappers.HardAutoResetWrapper(env)
     else:

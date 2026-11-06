@@ -71,6 +71,7 @@ def make_learner(
     recovery_reward_fn: Callable[[jax.Array], jax.Array],
     violates_fn: Callable[[jax.Array], jax.Array],
     action_repeat: int,
+    next_observation_fn: Callable[[jax.Array], jax.Array] = lambda obs: obs,
 ):
     """Creates the initialization, data insertion and learner step functions."""
     c = agent_cfg
@@ -199,6 +200,12 @@ def make_learner(
             policy_params = recovery_policy_params
             normalizer_params = recovery_normalizer_params
         if c["init_normalizer_from_prior"]:
+            _check_same_structure(
+                recovery_normalizer_params,
+                normalizer_params,
+                "observation normalizer",
+                "The prior sees only a part of the observation.",
+            )
             # Statistics of the simulation, such that no observation starts with
             # a vanishing standard deviation.
             normalizer_params = recovery_normalizer_params
@@ -268,12 +275,14 @@ def make_learner(
             training_state.normalizer_params, training_state.model_params, obs, action
         )
         disagreement = next_obs_pred.std(axis=0).mean(-1)
-        next_obs_mean = next_obs_pred.mean(axis=0)
+        next_obs_mean = next_observation_fn(next_obs_pred.mean(axis=0))
         if c["model_propagation"] == "nominal":
             next_obs_sample = next_obs_mean
         elif c["model_propagation"] == "random":
             idx = jax.random.randint(key, (obs.shape[0],), 0, next_obs_pred.shape[0])
-            next_obs_sample = next_obs_pred[idx, jnp.arange(obs.shape[0])]
+            next_obs_sample = next_observation_fn(
+                next_obs_pred[idx, jnp.arange(obs.shape[0])]
+            )
         else:
             raise ValueError(f"Unknown model propagation: {c['model_propagation']}")
         return next_obs_mean, next_obs_sample, reward_pred.mean(axis=0), disagreement

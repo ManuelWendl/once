@@ -62,3 +62,5 @@ class TrainingState:
     alpha_params: Params
     normalizer_params: running_statistics.RunningStatisticsState
     penalizer_params: Params
+    # The handover adversary's state (adversary.py), if one trains alongside.
+    adversary: Any = None

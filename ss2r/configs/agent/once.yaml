@@ -47,6 +47,9 @@ intervention_task_reward: 0.
 # system. False: the rollout terminates with intervention_task_reward.
 intervention_continue: false
 # Recovery prior.
+# The recovery prior sees the first this many values of the observation (null: all of
+# them), for a prior trained on a part of the real system's observation.
+recovery_observation_size: null
 # The behavior action is only taken if Q_R(s, a) >= recovery_threshold.
 recovery_threshold: 0.99
 # Q_R target: recovery_reward - 2 * penalty_scale * max(disagreement - margin, 0)
@@ -82,3 +85,8 @@ chunk_size: 8
 publish_every: 1
 # Speed of the environment relative to real time. Null runs as fast as possible.
 realtime_factor: 1.0
+# With the actor on another machine (a robot): what the learner binds, what the actor
+# connects to, and the exchanges of policy and transitions per second at most.
+remote_bind: null
+remote_connect: null
+remote_exchange_hz: 10

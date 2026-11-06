@@ -1,0 +1,16 @@
+# @package _global_
+# ONCE on the real CyberRunner: the configuration of cyberrunner_once, with the learner on a
+# GPU and the actor on the rig's Mac (cyberrunner_experiments/rig_actor.py).
+defaults:
+  - cyberrunner_once
+  - override /environment: cyberrunner_rig
+  - _self_
+
+agent:
+  # The camera sets the rate.
+  realtime_factor: null
+  # What the learner binds on its node, and the rig's end of the tunnel to it.
+  remote_bind: tcp://*:5555
+  remote_connect: tcp://127.0.0.1:5555
+  # About 10 policies per second, as many as the link takes.
+  publish_every: 4

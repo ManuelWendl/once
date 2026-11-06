@@ -1,6 +1,7 @@
 import functools
 from typing import Any, Callable, Mapping
 
+from ss2r.benchmark_suites.mujoco_cpu import cyberrunner, cyberrunner_rig
 from ss2r.benchmark_suites.mujoco_cpu.cartpole import CartpoleSwingupCPU, RealEnv
 from ss2r.benchmark_suites.mujoco_cpu.go_to_goal import GoToGoalCPU
 from ss2r.benchmark_suites.mujoco_cpu.humanoid import HumanoidWalkCPU
@@ -18,6 +19,8 @@ from ss2r.benchmark_suites.safety_gym import recovery as go_to_goal_recovery
 
 _envs = {
     "CartpoleSwingupCPU": CartpoleSwingupCPU,
+    "CyberRunnerCPU": cyberrunner.CyberRunnerCPU,
+    "CyberRunnerRig": cyberrunner_rig.CyberRunnerRig,
     "GoToGoalCPU": GoToGoalCPU,
     "HumanoidWalkCPU": HumanoidWalkCPU,
     "WalkerWalkCPU": WalkerWalkCPU,
@@ -41,6 +44,8 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
     """The recovery reward and the constraint violation of an observation."""
     task_name = environment_cfg["task_name"]
     task_params = environment_cfg["task_params"]
+    recovery_reward_fn: Callable
+    violates_fn: Callable
     if task_name == "CartpoleSwingupCPU":
         recovery_reward_fn = functools.partial(
             cartpole_recovery.recovery_reward_fn,
@@ -80,6 +85,8 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
             walker_recovery.violates,
             hard_upright=task_params["hard_upright"],
         )
+    elif task_name in ("CyberRunnerCPU", "CyberRunnerRig"):
+        recovery_reward_fn, violates_fn = cyberrunner.recovery_fns(task_params)
     elif task_name == "HumanoidWalkCPU":
         hard_bounds = dict(
             hard_upright=task_params["hard_upright"],
@@ -96,3 +103,10 @@ def get_recovery_fns(environment_cfg: Mapping[str, Any]) -> tuple[Callable, Call
     else:
         raise ValueError(f"Unknown CPU environment {task_name}")
     return recovery_reward_fn, violates_fn
+
+
+def get_next_observation_fn(environment_cfg: Mapping[str, Any]) -> Callable:
+    """Corrects a batch of observations predicted by the model."""
+    if environment_cfg["task_name"] in ("CyberRunnerCPU", "CyberRunnerRig"):
+        return cyberrunner.next_observation_fn(environment_cfg["task_params"])
+    return lambda obs: obs

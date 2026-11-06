@@ -70,6 +70,9 @@ def get_train_fn(cfg, checkpoint_path, restore_checkpoint_path):
         del agent_cfg["replay_buffer"]
     if "pessimistic_q" in agent_cfg:
         del agent_cfg["pessimistic_q"]
+    adversary_factory = _get_adversary_factory(
+        agent_cfg.pop("adversary", None), agent_cfg
+    )
     if "use_vision" in agent_cfg and agent_cfg["use_vision"]:
         network_factory = functools.partial(
             sac_vision_networks.make_sac_vision_networks,
@@ -123,5 +126,28 @@ def get_train_fn(cfg, checkpoint_path, restore_checkpoint_path):
         get_experience_fn=data_collection,
         replay_buffer_factory=replay_buffer_factory,
         restore_checkpoint_path=restore_checkpoint_path,
+        adversary_factory=adversary_factory,
     )
     return train_fn
+
+
+def _get_adversary_factory(adversary_cfg, agent_cfg):
+    """The handover adversary (adversary.py) of agent.adversary, built once the env's
+    adversary observation size is known; None without one."""
+    if not adversary_cfg:
+        return None
+    import jax.nn as jnn
+
+    from ss2r.algorithms.sac.adversary import Adversary
+
+    kwargs = dict(adversary_cfg)
+    kwargs["activation"] = getattr(jnn, kwargs.pop("activation", "swish"))
+    kwargs["hidden_layer_sizes"] = tuple(kwargs.get("hidden_layer_sizes", (256, 256)))
+    return lambda observation_size, action_size, backup_network: Adversary(
+        observation_size,
+        action_size,
+        backup_network,
+        use_bro=agent_cfg.get("use_bro", True),
+        n_critics=agent_cfg.get("n_critics", 2),
+        **kwargs,
+    )

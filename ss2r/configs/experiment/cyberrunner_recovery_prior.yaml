@@ -1,0 +1,69 @@
+# @package _global_
+# Recovery prior (safe backup) for CyberRunner, on the maze of environment.task_params.layout
+# (easy by default): SAC with SPiDR over our domain randomization and the pessimistic recovery
+# reward, after Manuel's backup-sac.
+defaults:
+  - mujoco_playground_dm_control
+  - override /environment: cyberrunner_recovery
+  - override /agent/propagation: spidr
+  - override /agent/reward_robustness: pessimistic_recovery
+  - _self_
+
+environment:
+  # Resets for 512 done envs per step (about 300 of 4096 end per step), not all 4096: the
+  # handover starts' warm-up makes a reset cost 20 physics steps.
+  resample_pool_size: 512
+  task_params:
+    impl: jax  # MJX: SPiDR vmaps its perturbed models inside the env vmap, MuJoCo Warp cannot
+    delay_ms: [0.0, 33.3]  # as the rig policy; the robot's latency is about 22 ms
+
+training:
+  num_timesteps: 20000000
+  num_evals: 40  # a checkpoint every 500k steps, to pick the best calibrated one
+  # As the SAC behavior policy: many randomized worlds per batch.
+  num_envs: 4096
+  action_repeat: 1
+  # Recovery horizon H = 100 steps at 60 Hz (1.67 s), as Manuel's backup.
+  episode_length: 100
+  safe: false
+  # Q_R has to run on the robot, from its 30 observations (the history).
+  value_privileged: false
+  train_domain_randomization: true
+  eval_domain_randomization: true
+  render: false
+
+agent:
+  activation: swish
+  # Finite horizon, no discounting.
+  discounting: 1.0
+  # From the SAC behavior policy study: learning rates, 1/64 updates per transition,
+  # replay sizes, and the lowest critic in the target, which kept SAC stable there.
+  # Its privileged critic and action-rate penalty do not apply: Q_R runs on the robot,
+  # and the backup is judged by reaching R alone. reward_scaling stays 1 so that Q_R
+  # stays a probability.
+  learning_rate: 0.0003
+  critic_learning_rate: 0.0003
+  alpha_learning_rate: 0.0003
+  batch_size: 512
+  grad_updates_per_step: 64
+  min_replay_size: 65536
+  max_replay_size: 4194304
+  pessimistic_q: true
+  # ONCE's behavior network, which init_behavior_from_prior needs to match.
+  policy_hidden_layer_sizes: [256, 256, 256]
+  propagation:
+    num_envs: 8
+    # The copies differ only in the newest frame's tilt and ball position: with random
+    # commands the disagreement (lambda_ = 1) has median 7.5e-6, p75 1.05e-5, p90 1.5e-5,
+    # max 2.1e-5, close to Manuel's rho. lambda_ is his L = 8000.
+    lambda_: 8000.0
+    alpha: 0.
+    statistic: std
+    # observation: the 30 history values; state: the tilts, the ball position and how far
+    # the tilts' velocities move them in one step (CyberRunnerRecovery.spidr_state), which
+    # needs its own lambda_.
+    disagreement_on: observation
+  reward_robustness:
+    penalty_scale: 1.0
+    # The p75 (8000 * 1.05e-5): the penalty is 0.07 per step at the p90, 0.17 at the max.
+    margin: 0.085

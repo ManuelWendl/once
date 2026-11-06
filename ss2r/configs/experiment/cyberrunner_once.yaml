@@ -1,0 +1,45 @@
+# @package _global_
+defaults:
+  - override /agent: once
+  - override /environment: cyberrunner_cpu
+  - _self_
+
+# The recovery prior is trained with cyberrunner_recovery_prior_adversary (or
+# cyberrunner_recovery_prior) and loaded with prior.checkpoint_path. Its R is
+# set in environment/cyberrunner_recovery.yaml and has to match environment/cyberrunner_cpu.yaml.
+prior:
+  experiment: cyberrunner_recovery_prior_adversary
+
+training:
+  # An environment step takes 1/60 seconds: 500000 steps are about 2.3 hours.
+  num_timesteps: 500000
+  action_repeat: 1
+  # The rewards, to count the goals afterwards.
+  store_trajectory: true
+
+agent:
+  # The prior sees the 30 history values, not the path points.
+  recovery_observation_size: 30
+  recovery_threshold: 0.95
+  # Q_R stays at the prior's: fine-tuned online, it collapses within 22k steps, as the
+  # learned model is wrong about the backup's actions.
+  recovery_q_learning_rate: 0
+  # Horizon of cyberrunner_recovery_prior: 100 steps at 60 Hz.
+  recovery_horizon: 100
+  recovery_restart_rollouts: true
+  min_replay_size: 5000
+  num_critic_updates_per_actor_update: 2
+  # The only setting with which the shielded ball reaches the goal on all seeds.
+  pessimistic_q: false
+  reward_scaling: 10
+  # Keeps alpha high enough to look for new lines past the holes.
+  target_entropy: 0
+  # The worst progress reward per step is about -0.08: the ball rolling back at 0.5 m/s.
+  intervention_task_reward: -0.1
+  # Exploration bonus on the task reward and margin of the Q_R penalty, in units of the
+  # ensemble's disagreement on the raw observation. Trained on 27k shielded transitions of
+  # a policy that rolls the ball through the maze, the ensemble disagrees by 0.0076 at
+  # the median: the bonus is then about 1.5 times the progress reward (0.024 per step), and
+  # the penalty only acts above the 99th percentile of the backup's own actions (0.018).
+  optimism: 5
+  margin: 0.02

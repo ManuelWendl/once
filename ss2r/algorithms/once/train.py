@@ -27,6 +27,7 @@ from ss2r.algorithms.once.actor import (
 from ss2r.algorithms.once.filter import get_filter_params
 from ss2r.algorithms.once.learner import make_learner
 from ss2r.algorithms.once.networks import make_networks
+from ss2r.algorithms.once.remote import RemoteActor
 from ss2r.algorithms.once.shared_params import SharedParams
 from ss2r.algorithms.once.trajectory import TrajectoryWriter
 from ss2r.algorithms.sac.types import Metrics, Transition
@@ -51,8 +52,28 @@ def _to_transition(chunk: Mapping[str, np.ndarray]) -> Transition:
     )
 
 
+def task_metrics(
+    window: Mapping[str, float],
+    counts: Mapping[str, float],
+    best: Mapping[str, float],
+) -> dict[str, float]:
+    """The task metrics of the environment: the maxima over the window and over the
+    run (best_), and the counts over the run."""
+    strip = lambda name: name.split("/", 1)[1]
+    maxima = {
+        f"online/{strip(name)}": value
+        for name, value in window.items()
+        if name.startswith("maxima/")
+    }
+    records = {f"online/best_{strip(name)}": value for name, value in best.items()}
+    totals = {f"online/{strip(name)}": total for name, total in counts.items()}
+    return maxima | records | totals
+
+
 class _SyncActor:
     """Runs the actor in the learner's process, for debugging and tests."""
+
+    paused = False
 
     def __init__(
         self,
@@ -64,7 +85,11 @@ class _SyncActor:
         record_state=False,
     ):
         env = mujoco_cpu.make(environment_cfg, action_repeat, seed)
-        policy_step, _ = make_policy_step(*networks, env.observation_size)
+        policy_step, _ = make_policy_step(
+            *networks,
+            env.observation_size,
+            agent_cfg.get("recovery_observation_size"),
+        )
         self._actor = Actor(
             env, policy_step, agent_cfg["chunk_size"], seed, record_state
         )
@@ -85,6 +110,8 @@ class _SyncActor:
 
 class _AsyncActor:
     """Runs the actor in its own process, on the CPU."""
+
+    paused = False
 
     def __init__(
         self,
@@ -222,6 +249,7 @@ def train(
         action_size=action_size,
         agent_cfg=agent_cfg,
         recovery_reward_fn=recovery_reward_fn,
+        next_observation_fn=mujoco_cpu.get_next_observation_fn(environment_cfg),
         violates_fn=violates_fn,
         action_repeat=action_repeat,
     )
@@ -275,10 +303,21 @@ def train(
             },
         )
     record_state = trajectory_writer is not None
-    actor: _AsyncActor | _SyncActor
-    if c["asynchronous"]:
+    actor: _AsyncActor | _SyncActor | RemoteActor
+    if c.get("remote_bind"):
         _, num_params = make_policy_step(
-            mbpo_network, recovery_network, observation_size
+            mbpo_network,
+            recovery_network,
+            observation_size,
+            c.get("recovery_observation_size"),
+        )
+        actor = RemoteActor(c["remote_bind"], num_params, c["remote_exchange_hz"])
+    elif c["asynchronous"]:
+        _, num_params = make_policy_step(
+            mbpo_network,
+            recovery_network,
+            observation_size,
+            c.get("recovery_observation_size"),
         )
         actor = _AsyncActor(
             environment_cfg,
@@ -340,6 +379,8 @@ def train(
     learner_steps = 0
     violations = 0.0
     costs = 0.0
+    counts: dict[str, float] = {}
+    best: dict[str, float] = {}
     out_of_arena = 0.0
     next_log = log_every
     window: dict[str, float] = {}
@@ -351,8 +392,9 @@ def train(
     try:
         actor.publish(policy_params(training_state))
         while env_steps < num_timesteps:
-            # Never wait for data, unless there is not enough to start learning.
-            waiting = control_steps < c["min_replay_size"]
+            # Never wait for data, unless there is not enough to start learning, or the
+            # system is paused.
+            waiting = control_steps < c["min_replay_size"] or actor.paused
             for chunk, stats in actor.get(block=waiting or not c["asynchronous"]):
                 training_state, behavior_buffer_state = insert(
                     training_state, behavior_buffer_state, _to_transition(chunk)
@@ -365,11 +407,15 @@ def train(
                 costs += stats.get("cost", 0.0)
                 out_of_arena += stats.get("out_of_arena", 0.0)
                 for name, value in stats.items():
-                    if name == "max_step_time":
+                    if name.startswith("counts/"):
+                        counts[name] = counts.get(name, 0.0) + value
+                    if name.startswith("maxima/"):
+                        best[name] = max(best.get(name, value), value)
+                    if name == "max_step_time" or name.startswith("maxima/"):
                         window[name] = max(window.get(name, 0.0), value)
                     else:
                         window[name] = window.get(name, 0.0) + value
-            if control_steps >= c["min_replay_size"]:
+            if control_steps >= c["min_replay_size"] and not actor.paused:
                 key, step_key = jax.random.split(key)
                 (
                     training_state,
@@ -393,6 +439,7 @@ def train(
                 next_log = (env_steps // log_every + 1) * log_every
                 steps = window["steps"]
                 elapsed = time.time() - window_start
+                elapsed = max(elapsed - window.get("counts/paused_s", 0.0), 1e-6)
                 metrics = {
                     f"training/{name}": float(value)
                     for name, value in jax.device_get(learner_metrics).items()
@@ -418,6 +465,7 @@ def train(
                 if "cost" in window:
                     # Environment steps with a cost, for environments with one.
                     metrics["online/costs"] = costs
+                metrics |= task_metrics(window, counts, best)
                 if "out_of_arena" in window:
                     # The violations by leaving the arena, counted from the start.
                     metrics["online/out_of_arena"] = out_of_arena

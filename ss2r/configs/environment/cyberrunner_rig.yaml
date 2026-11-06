@@ -1,0 +1,26 @@
+# The real CyberRunner as ONCE's real system, through cyberrunner_experiments/rig_bridge.py:
+# the easy maze with the observation of environment/cyberrunner_cpu.yaml.
+domain_name: mujoco_cpu
+
+task_name: CyberRunnerRig
+task_params:
+  layout: easy
+  # The behavior's observation: 5 history frames, then 10 path points.
+  history_length: 5
+  num_path_points: 10
+  path_step: 50
+  path_distance: 0.0001
+  num_rays: 32
+  # Path points from the stretch of path the reward sees, not from the nearest point,
+  # which switches through walls with the ball's noise.
+  visible_path: true
+  # No step limit: the ball is put back at the start only at the goal (and after a fall),
+  # such that the behavior keeps learning where it got to.
+  max_episode_steps: null
+  # Safe operable region R, as in environment/cyberrunner_recovery.yaml.
+  recovery_hole_distance: 0.0138
+  recovery_speed: 0.05
+  bridge_port: 5600
+  # A ball lost closer than this to a hole's centre has fallen; the camera also loses it
+  # elsewhere, 83 mm from the nearest hole.
+  fall_distance: 0.02
