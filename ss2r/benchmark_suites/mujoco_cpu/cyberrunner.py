@@ -107,8 +107,10 @@ class CyberRunner:
         recovery_hole_distance: float = recovery.RECOVERY_HOLE_DISTANCE,
         recovery_speed: float = recovery.RECOVERY_SPEED,
         action_repeat: int = 1,
+        reward_scale: float = 1.0,
     ):
         self._layout = maze.get_layout(layout)
+        self._reward_scale = reward_scale
         self._history_length = history_length
         self._max_episode_steps = (
             float("inf") if max_episode_steps is None else max_episode_steps
@@ -216,7 +218,7 @@ class CyberRunner:
         frame, ball_seen = self._measure(ball, action)
         self._history = np.concatenate([self._history[1:], frame[None]], axis=0)
         self._steps += 1
-        return float(reward), ball_seen, in_hole, at_goal, in_r
+        return float(reward * self._reward_scale), ball_seen, in_hole, at_goal, in_r
 
     def _progress(self, ball: np.ndarray) -> float:
         """Path progress of the ball, -1 where no part of the path is visible."""

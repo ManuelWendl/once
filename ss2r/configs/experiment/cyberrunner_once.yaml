@@ -31,15 +31,18 @@ agent:
   num_critic_updates_per_actor_update: 2
   # The only setting with which the shielded ball reaches the goal on all seeds.
   pessimistic_q: false
-  reward_scaling: 10
+  # The task reward is scaled in the environment (reward_scale)
+  reward_scaling: 1
   # Keeps alpha high enough to look for new lines past the holes.
   target_entropy: 0
-  # The worst progress reward per step is about -0.08: the ball rolling back at 0.5 m/s.
-  intervention_task_reward: -0.1
-  # Exploration bonus on the task reward and margin of the Q_R penalty, in units of the
-  # ensemble's disagreement on the raw observation. Trained on 27k shielded transitions of
-  # a policy that rolls the ball through the maze, the ensemble disagrees by 0.0076 at
-  # the median: the bonus is then about 1.5 times the progress reward (0.024 per step), and
-  # the penalty only acts above the 99th percentile of the backup's own actions (0.018).
-  optimism: 5
+  # The worst progress reward per step is about -0.8 after the environment's scale of 10
+  # (the ball rolling back at 0.5 m/s); The intervention should cost more.
+  intervention_task_reward: -1
+  # Over 9 seeds, optimism 1 with discount 0.995 parks the ball for the least time
+  # (median 31 min in 500k steps against 56).
+  optimism: 1
+  discounting: 0.995
   margin: 0.02
+  # Over 9 seeds, a smaller critic than once.yaml's [512, 512] reaches the goal more often
+  # (median 36 goals in 500k steps against 4) and parks the ball less.
+  value_hidden_layer_sizes: [256, 256]

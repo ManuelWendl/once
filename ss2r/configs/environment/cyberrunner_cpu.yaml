@@ -25,6 +25,8 @@ task_params:
   # Safe operable region R, as in environment/cyberrunner_recovery.yaml.
   recovery_hole_distance: 0.0138
   recovery_speed: 0.05
+  # Multiplies the task reward (path progress and goal bonus)
+  reward_scale: 10
 
 # The real system's physics, playing the role of the sim-to-real gap: the centre of the
 # prior's randomization ranges (multipliers, except the tilts in degrees).
