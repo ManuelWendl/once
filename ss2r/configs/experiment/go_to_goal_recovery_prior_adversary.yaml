@@ -1,0 +1,35 @@
+# @package _global_
+# Recovery prior trained against a handover adversary (ss2r/algorithms/sac/adversary.py),
+# as cyberrunner_recovery_prior_adversary: in half the episodes an adversary sends the
+# actions for 1 to 10 control steps (up to 0.8 s) to make the robot violate the
+# constraint, then the backup takes over. Both learn from all transitions, the backup's
+# critic always continuing with the backup, and they are updated in turns (RARL).
+defaults:
+  - go_to_goal_recovery_prior
+  - _self_
+
+training:
+  # The backup is updated in half of the blocks only: twice the steps of
+  # go_to_goal_recovery_prior give it as many updates.
+  num_timesteps: 10000000
+
+environment:
+  task_params:
+    adversary_fraction: 0.5
+    # About 30% of the 35 control steps of the horizon, as 30 of the 100 steps of
+    # CyberRunner. The adversary's phase counts towards the horizon.
+    adversary_max_steps: 10
+
+agent:
+  adversary:
+    # Blocks of this many environment steps (action_repeat counted), the backup's
+    # first: each is updated in its own blocks only. With 128 envs and 8 updates per
+    # control step, a block is about 3100 updates, as in CyberRunner.
+    alternate_every_steps: 200000
+    learning_rate: 0.0003
+    critic_learning_rate: 0.0003
+    alpha_learning_rate: 0.0003
+    init_alpha: 1.0
+    tau: 0.005
+    hidden_layer_sizes: [256, 256, 256]
+    activation: swish

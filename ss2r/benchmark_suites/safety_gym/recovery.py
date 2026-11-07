@@ -42,6 +42,12 @@ RECOVERY_MAX_DISTANCE = None
 # The nominal robot reaches 1.5 m/s and 3 rad/s.
 RESET_SPEED = 1.5
 RESET_ANGULAR_VELOCITY = 3.0
+# Handover adversary (ss2r/algorithms/sac/adversary.py): this share of the episodes
+# starts with a phase of 1 to ADVERSARY_MAX_STEPS control steps in which an adversary
+# trained alongside the backup sends the actions, then the backup takes over. Off (0)
+# by default.
+ADVERSARY_FRACTION = 0.0
+ADVERSARY_MAX_STEPS = 10
 
 
 def obstacle_distance(obs):
@@ -141,6 +147,10 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
 
     `state.reward` remains the go to goal task reward. The recovery signal is
     written to `state.info["recovery_reward"]`.
+
+    With `adversary_fraction`, a share of the episodes starts with a handover
+    adversary's phase: `state.info["adversary_left"]` counts its control steps
+    left, `state.info["adversary_obs"]` is the adversary's observation.
     """
 
     def __init__(
@@ -169,6 +179,8 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         recovery_dwell: int = 1,
         violation_on_cost: bool = False,
         action_repeat: int = 1,
+        adversary_fraction: float = ADVERSARY_FRACTION,
+        adversary_max_steps: int = ADVERSARY_MAX_STEPS,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -208,6 +220,17 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         # instead of a distance to the closest obstacle below hard_distance.
         self._violation_on_cost = violation_on_cost
         self._action_repeat = action_repeat
+        if not 0.0 <= adversary_fraction <= 1.0:
+            raise ValueError(
+                f"adversary_fraction {adversary_fraction} is not in [0, 1]"
+            )
+        if adversary_fraction > 0.0 and adversary_max_steps < 1:
+            raise ValueError(f"adversary_max_steps {adversary_max_steps} is below 1")
+        self._adversary_fraction = adversary_fraction
+        self._adversary_max_steps = int(adversary_max_steps)
+        if self.has_adversary:
+            # A new episode takes these from its reset (ResampleAutoResetWrapper).
+            self.episode_info_keys = ("adversary_left", "adversary_obs")
         # Start as close to the obstacles as the hard constraint allows.
         obstacle_keepouts = [
             self.spec[name].keepout
@@ -287,7 +310,46 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             state.info["step_cost"] = jp.zeros(())
         state.metrics["recovery/reached"] = jp.zeros(())
         state.metrics["recovery/violated"] = jp.zeros(())
+        if self.has_adversary:
+            k_use, k_steps = jax.random.split(jax.random.fold_in(rng, 5))
+            steps = jax.random.randint(k_steps, (), 1, self._adversary_max_steps + 1)
+            use = jax.random.uniform(k_use) < self._adversary_fraction
+            left = jp.where(use, steps, 0)
+            state.info["adversary_left"] = left
+            state.info["adversary_obs"] = self.adversary_observation(data, left)
+            state.metrics["adversary/acting"] = jp.zeros(())
+            state.metrics["adversary/violated"] = jp.zeros(())
         return state.replace(data=data, obs=obs)  # type: ignore
+
+    @property
+    def has_adversary(self) -> bool:
+        return self._adversary_fraction > 0.0
+
+    @property
+    def adversary_observation_size(self) -> int:
+        num_obstacles = len(self._hazard_body_ids) + len(self._vase_body_ids)
+        return 4 + 2 * num_obstacles
+
+    def adversary_observation(self, data, left: jax.Array) -> jax.Array:
+        """The true state: the robot's velocity in its own frame and its turn rate,
+        the position of every hazard and vase in the robot's frame (hazards first,
+        which the lidar does not tell from vases), and the share of the adversary's
+        phase left."""
+        robot_pos = data.xpos[self._robot_body_id]
+        # Rows are world vectors, so `@ robot_mat` turns them into the robot's frame.
+        robot_mat = data.xmat[self._robot_body_id].reshape(3, 3)
+        qvel = data.qvel[jp.asarray(self._robot_qvel_ids)]
+        velocity = (jp.concatenate([qvel[:2], jp.zeros(1)]) @ robot_mat)[:2]
+        ids = jp.asarray(self._hazard_body_ids + self._vase_body_ids, dtype=jp.int32)
+        obstacles = ((data.xpos[ids] - robot_pos) @ robot_mat)[:, :2]
+        return jp.concatenate(
+            [
+                velocity,
+                qvel[2:3],
+                obstacles.reshape(-1),
+                (left / self._adversary_max_steps)[None],
+            ]
+        ).astype(jp.float32)
 
     def _sample_position(
         self, rng: jax.Array, data, lower: float, upper: float
@@ -430,6 +492,7 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
 
     def step(self, state: go_to_goal.State, action: jax.Array) -> go_to_goal.State:
         dwell, substep = state.info["recovery_dwell"], state.info["substep"]
+        adversary_left = state.info.get("adversary_left")
         # The auto reset does not reset the info: a new episode starts with zero
         # steps. The step within the control step needs no reset, as episodes
         # end with a control step.
@@ -473,5 +536,19 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         nstate.info["recovery_reward"] = recovery_reward
         nstate.metrics["recovery/reached"] = recovery_reward
         nstate.metrics["recovery/violated"] = violated.astype(jp.float32)
+        if self.has_adversary:
+            # This control step's actions came from the adversary while its phase
+            # lasted. The phase counts control steps: the adversary acts once per
+            # control step, and only its last step is kept by the episode wrapper.
+            acting = adversary_left > 0
+            left = jp.where(
+                end_of_control_step, jp.maximum(adversary_left - 1, 0), adversary_left
+            )
+            nstate.info["adversary_left"] = left
+            nstate.info["adversary_obs"] = self.adversary_observation(nstate.data, left)
+            nstate.metrics["adversary/acting"] = acting.astype(jp.float32)
+            nstate.metrics["adversary/violated"] = (violated & acting).astype(
+                jp.float32
+            )
         done = jp.maximum(nstate.done, terminate.astype(nstate.done.dtype))
         return nstate.replace(done=done)  # type: ignore

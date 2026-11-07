@@ -5,7 +5,8 @@ defaults:
   - _self_
 
 prior:
-  experiment: go_to_goal_recovery_prior
+  # Trained against a handover adversary; go_to_goal_recovery_prior without it.
+  experiment: go_to_goal_recovery_prior_adversary
   # Priors have to be trained with the robot and R of go_to_goal_recovery:
   # fbhat9kt predates stable_steering, the priors of gtg_once_stable (e.g.
   # hdstt6hw) predate linear_thrust and recovery_max_distance, the priors of
