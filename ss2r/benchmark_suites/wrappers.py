@@ -695,18 +695,9 @@ class WalkerObservationWrapper(Wrapper):
             + list(range(85, 94)),
             dtype=jp.int32,
         )
-        # The indices are of a 94-dim observation. Playground 0.1 returns the
-        # 24-dim one of dm_control (orientations, height, velocities), which is
-        # kept as it is: taking indices beyond it fills them with NaN.
-        size = env.observation_size
-        size = size["state"] if isinstance(size, Mapping) else size
-        size = size[0] if isinstance(size, tuple) else size
-        self.filter = size == 94
 
     def _filter_obs(self, obs):
         """Filter observation to keep only the specified indices."""
-        if not self.filter:
-            return obs
         if isinstance(obs, jax.Array):
             return jp.take(obs, self.keep_indices, axis=-1)
         else:
@@ -753,8 +744,6 @@ class WalkerObservationWrapper(Wrapper):
     def observation_size(self):
         """Return the size of the filtered observation."""
         orig_size = self.env.observation_size
-        if not self.filter:
-            return orig_size
         if isinstance(orig_size, int):
             return len(self.keep_indices)
         else:

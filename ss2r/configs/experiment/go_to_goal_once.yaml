@@ -49,9 +49,6 @@ agent:
   recovery_horizon: 35
   recovery_dwell: 10
   recovery_restart_rollouts: true
-  # The most likely action of the prior, as reward_robustness.bootstrap_mode of
-  # go_to_goal_recovery_prior. With a prior before gtg_prior_stop, set false.
-  recovery_bootstrap_mode: true
   # Without the statistics of the prior, the model can get stuck at the start.
   init_normalizer_from_prior: true
   init_behavior_from_prior: false

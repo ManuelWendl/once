@@ -38,8 +38,3 @@ agent:
     # 0.035 * lambda_. Braking and steering alone are not penalized, combined
     # thrust and steering above average slightly.
     margin: 0.007
-    # Q_R bootstraps with the most likely action of the prior, which the filter
-    # executes. With the stop of R (stop_speed, stop_angular_velocity), the two
-    # differ: the prior of gtg_prior_spin (not trained to stop) recovered in 31%
-    # of the episodes with sampled actions, in 54% with its most likely ones.
-    bootstrap_mode: true
