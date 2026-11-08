@@ -5,8 +5,12 @@ defaults:
   - _self_
 
 prior:
-  # Trained against a handover adversary; go_to_goal_recovery_prior without it.
+  # Trained against a handover adversary, with a horizon of 70 control steps;
+  # go_to_goal_recovery_prior without the adversary and with 35.
   experiment: go_to_goal_recovery_prior_adversary
+  # The priors of gtg_prior_adversary (e.g. 66bqnktr) have a horizon of 35: for
+  # them, set agent.recovery_horizon=35. Their Q_R stays at about 0.8 even
+  # standing in R, so the filter blocks every action from a threshold of 0.85.
   # Priors have to be trained with the robot and R of go_to_goal_recovery:
   # fbhat9kt predates stable_steering, the priors of gtg_once_stable (e.g.
   # hdstt6hw) predate linear_thrust and recovery_max_distance, the priors of
@@ -39,15 +43,17 @@ agent:
   intervention_task_reward: -0.2
   critic_learning_rate: 1e-4
   min_alpha: 0.01
-  recovery_threshold: 0.9
+  # As gtg_once_stop_h70. With the priors of gtg_prior_stop_h70, Q_R is 0.90 to
+  # 0.96 standing in R, and 0.9 blocks most actions of a goal seeking controller.
+  recovery_threshold: 0.85
   # Matched to the disagreement of the learned model online, such that the
   # filter does not lock up. It was about 0.1 before stable_steering, which
   # lowers the disagreement of the model to about 0.35x (trained on the same
   # random-action data of the system, before and after).
   margin: 0.035
   penalty_scale: 0.2
-  # Horizon and dwell of go_to_goal_recovery_prior.
-  recovery_horizon: 35
+  # Horizon and dwell of the prior (go_to_goal_recovery_prior_adversary).
+  recovery_horizon: 70
   recovery_dwell: 10
   recovery_restart_rollouts: true
   # Without the statistics of the prior, the model can get stuck at the start.

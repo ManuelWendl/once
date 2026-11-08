@@ -9,15 +9,22 @@ defaults:
   - _self_
 
 training:
-  # The backup is updated in half of the blocks only: twice the steps of
-  # go_to_goal_recovery_prior give it as many updates.
-  num_timesteps: 10000000
+  # Horizon H = episode_length / action_repeat = 70 control steps (5.6 s), twice the
+  # 35 of go_to_goal_recovery_prior. A timeout ends an episode as a failure and the
+  # critic does not see the time left, so Q_R stays below 1 even for a robot standing
+  # in R: about 0.8 with 35 steps (gtg_prior_adversary), such that a threshold of 0.85
+  # blocks every action, and 0.90 to 0.96 with 70 (gtg_prior_stop_h70), checked with
+  # plotting/probe_gtg_prior.py. ONCE needs agent.recovery_horizon: 70 with it.
+  episode_length: 280
+  # The 15M of gtg_prior_stop_h70, doubled: the backup is updated in half of the
+  # blocks only.
+  num_timesteps: 30000000
 
 environment:
   task_params:
     adversary_fraction: 0.5
-    # About 30% of the 35 control steps of the horizon, as 30 of the 100 steps of
-    # CyberRunner. The adversary's phase counts towards the horizon.
+    # 0.8 s, 14% of the horizon: the adversary's phase counts towards the horizon
+    # of the backup.
     adversary_max_steps: 10
 
 agent:
