@@ -37,8 +37,24 @@ n_critics: 2
 n_heads: 1
 model_ensemble_size: 5
 model_propagation: nominal
-# Exploration bonus on the task reward.
+# Exploration bonus on the task reward: optimism times the model's disagreement.
 optimism: 0.
+# Confidence width of the optimism (IGP-UCB, Chowdhury & Gopalan 2017). With name info_gain,
+# optimism is replaced by beta_t = B + R sqrt(2 (gamma_t + 1 + ln(1/delta))), capped at
+# max. gamma_t, the information gain of the real transitions so far, is
+# 1/2 sum_s sum_d ln(1 + sigma_d^2(s_s, a_s) / noise_std_d^2): sigma_d^2 is the ensemble's
+# variance of output d before it learned the transition (counted once learning started).
+# gamma_t is logged (training/info_gain) also without the schedule.
+optimism_schedule:
+  name: null
+  B: 0.0
+  R: 1.0
+  delta: 0.1
+  # Observation indices that count (null: all), and their noise std: one value, or one
+  # per index, in the observation's units.
+  dims: null
+  noise_std: 1.0
+  max: null
 # Task reward given to the behavior when the recovery prior takes over (the
 # worst reward of the environment).
 intervention_task_reward: 0.

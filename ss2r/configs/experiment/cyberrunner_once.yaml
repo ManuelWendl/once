@@ -41,6 +41,19 @@ agent:
   # Over 9 seeds, optimism 1 with discount 0.995 parks the ball for the least time
   # (median 31 min in 500k steps against 56).
   optimism: 1
+  optimism_schedule:
+    # agent.optimism_schedule.name=info_gain turns it on.
+    name: null
+    # The newest frame's measurements: joint angles (rad) and ball (m), whose noise is
+    # uniform within +-0.25 deg and +-1 mm: std = half width / sqrt(3).
+    dims: [24, 25, 26, 27]
+    noise_std: [0.00252, 0.00252, 0.000577, 0.000577]
+    # beta_0 = R sqrt(2 (1 + ln 10)) = 1, the constant optimism above.
+    R: 0.389
+    # 20 times the constant optimism: at the disagreement floor (0.003) the bonus is
+    # then about 0.06 per step, around the progress reward of slow rolling. To be set
+    # from utility_scripts/cyberrunner_parking.py --info-gain.
+    max: 20
   discounting: 0.995
   margin: 0.02
   # Over 9 seeds, a smaller critic than once.yaml's [512, 512] reaches the goal more often

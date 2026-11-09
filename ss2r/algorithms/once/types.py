@@ -33,6 +33,8 @@ class OnceTrainingState:
     recovery_normalizer_params: running_statistics.RunningStatisticsState
     gradient_steps: jnp.ndarray
     env_steps: jnp.ndarray
+    # Information gain of the real transitions so far, for the optimism schedule.
+    info_gain: jnp.ndarray
 
 
 @flax.struct.dataclass

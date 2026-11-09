@@ -88,6 +88,20 @@ def make_learner(
             "Not enough model rollouts: num_model_rollouts * unroll_length must be "
             "at least sac_batch_size * critic_grad_updates_per_step"
         )
+    # Confidence width of the optimism: constant, or IGP-UCB's beta_t of the
+    # information gain of the real transitions (Chowdhury & Gopalan 2017).
+    schedule = c.get("optimism_schedule") or {}
+    if schedule.get("name") not in (None, "info_gain"):
+        raise ValueError(f"Unknown optimism schedule: {schedule['name']}")
+    info_gain_dims = (
+        jnp.arange(observation_size)
+        if schedule.get("dims") is None
+        else jnp.asarray(schedule["dims"])
+    )
+    info_gain_noise_var = jnp.broadcast_to(
+        jnp.asarray(schedule.get("noise_std", 1.0), jnp.float32) ** 2,
+        info_gain_dims.shape,
+    )
     recovery_threshold = c["recovery_threshold"]
     recovery_horizon = c["recovery_horizon"]
     # Steps in a row the system has to end in R for a recovery, as for the prior.
@@ -226,6 +240,7 @@ def make_learner(
             recovery_normalizer_params=recovery_normalizer_params,
             gradient_steps=jnp.zeros(()),
             env_steps=jnp.zeros(()),
+            info_gain=jnp.zeros(()),
         )
         behavior_buffer_state = ring_buffer.init(
             behavior_dummy_transition, c["max_replay_size"]
@@ -245,12 +260,54 @@ def make_learner(
             recovery_buffer_state,
         )
 
+    def ensemble_predict(
+        training_state: OnceTrainingState, obs: jax.Array, action: jax.Array
+    ) -> Tuple[jax.Array, jax.Array]:
+        """Next observations and rewards of every member of the ensemble."""
+        vmap_pred_fn = jax.vmap(model_network.apply, in_axes=(None, 0, None, None))
+        next_obs_pred, reward_pred, _ = vmap_pred_fn(
+            training_state.normalizer_params, training_state.model_params, obs, action
+        )
+        return next_obs_pred, reward_pred
+
+    def information_gain(
+        training_state: OnceTrainingState, transitions: Transition
+    ) -> jax.Array:
+        """Information gain of real transitions that the model has not learned yet:
+        1/2 sum_d ln(1 + sigma_d^2 / noise_std_d^2) per transition, with sigma_d^2
+        the ensemble's variance of output d (Chowdhury & Gopalan 2017, Lemma 3)."""
+        next_obs_pred, _ = ensemble_predict(
+            training_state, transitions.observation, transitions.action
+        )
+        variance = next_obs_pred.var(axis=0)[..., info_gain_dims]
+        return 0.5 * jnp.sum(jnp.log1p(variance / info_gain_noise_var))
+
+    def optimism(training_state: OnceTrainingState) -> jax.Array:
+        """Scale of the exploration bonus: constant, or IGP-UCB's confidence width
+        beta_t = B + R sqrt(2 (gamma_t + 1 + ln(1/delta))), capped at max."""
+        if schedule.get("name") is None:
+            return jnp.asarray(c["optimism"], jnp.float32)
+        beta = schedule["B"] + schedule["R"] * jnp.sqrt(
+            2.0 * (training_state.info_gain + 1.0 + jnp.log(1.0 / schedule["delta"]))
+        )
+        if schedule.get("max") is not None:
+            beta = jnp.minimum(beta, schedule["max"])
+        return beta
+
     def insert(
         training_state: OnceTrainingState,
         behavior_buffer_state: RingBufferState,
         transitions: Transition,
     ) -> Tuple[OnceTrainingState, RingBufferState]:
         """Inserts a chunk of real transitions, collected with the behavior."""
+        # Their information, with the model and normalizer before they are learned.
+        # Counted once learning started: the spread of an untrained ensemble is no
+        # posterior variance.
+        info_gain = jnp.where(
+            training_state.gradient_steps > 0,
+            information_gain(training_state, transitions),
+            0.0,
+        )
         normalizer_params = running_statistics.update(
             training_state.normalizer_params, transitions.observation
         )
@@ -259,6 +316,7 @@ def make_learner(
         training_state = training_state.replace(  # type: ignore
             normalizer_params=normalizer_params,
             env_steps=training_state.env_steps + num_steps,
+            info_gain=training_state.info_gain + info_gain,
         )
         return training_state, behavior_buffer_state
 
@@ -269,10 +327,7 @@ def make_learner(
         key: PRNGKey,
     ) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
         """Ensemble predictions and their disagreement."""
-        vmap_pred_fn = jax.vmap(model_network.apply, in_axes=(None, 0, None, None))
-        next_obs_pred, reward_pred, _ = vmap_pred_fn(
-            training_state.normalizer_params, training_state.model_params, obs, action
-        )
+        next_obs_pred, reward_pred = ensemble_predict(training_state, obs, action)
         disagreement = next_obs_pred.std(axis=0).mean(-1)
         next_obs_mean = next_observation_fn(next_obs_pred.mean(axis=0))
         if c["model_propagation"] == "nominal":
@@ -305,6 +360,7 @@ def make_learner(
         training_state: OnceTrainingState, start_obs: jax.Array, key: PRNGKey
     ) -> Tuple[Transition, Metrics]:
         """Rolls out the behavior policy in the model, labeled with the task reward."""
+        bonus_scale = optimism(training_state)
 
         def f(obs, key):
             key_action, key_model = jax.random.split(key)
@@ -342,7 +398,7 @@ def make_learner(
                     terminated,
                     c["intervention_task_reward"],
                     reward
-                    + c["optimism"] * disagreement
+                    + bonus_scale * disagreement
                     + intervention * c["intervention_task_reward"],
                 )
             else:
@@ -354,7 +410,7 @@ def make_learner(
                 task_reward = jnp.where(
                     terminated,
                     c["intervention_task_reward"],
-                    reward + c["optimism"] * disagreement,
+                    reward + bonus_scale * disagreement,
                 )
             transitions = Transition(
                 observation=obs,
@@ -374,6 +430,8 @@ def make_learner(
                 "disagreement": disagreement.mean(),
                 "model_intervention": intervention.astype(jnp.float32).mean(),
                 "model_q_r": q_r.mean(),
+                "optimism": bonus_scale,
+                "info_gain": training_state.info_gain,
             }
             return next_obs, (transitions, metrics)
 
