@@ -41,6 +41,7 @@ def make_policy_step(
         return (
             action,
             extras["behavior_action"],
+            extras["recovery_action"],
             extras["intervention"],
             extras["q_r"],
             key,
@@ -78,11 +79,15 @@ class Actor:
         chunk_size: int,
         seed: int,
         record_state: bool = False,
+        recovery_hold: int = 1,
     ):
         self.env = env
         self.policy_step = policy_step
         self.chunk_size = chunk_size
         self.record_state = record_state
+        # Steps the recovery prior keeps control once it takes over, and the ones left.
+        self.recovery_hold = recovery_hold
+        self.hold_left = 0
         self.key = jax.random.PRNGKey(seed)
         self.params: Any = None
         self.obs = env.reset()
@@ -126,11 +131,24 @@ class Actor:
     def step(self) -> tuple[dict[str, np.ndarray], dict[str, float]] | None:
         """Takes one step. Returns a chunk of transitions once it is full."""
         start = time.perf_counter()
-        action, behavior_action, intervention, q_r, self.key = self.policy_step(
-            self.params, self.obs, self.key
-        )
+        (
+            action,
+            behavior_action,
+            recovery_action,
+            intervention,
+            q_r,
+            self.key,
+        ) = self.policy_step(self.params, self.obs, self.key)
         action = np.asarray(action)
         intervention = float(intervention)
+        if self.hold_left > 0:
+            # Handing control back after a single step lets the behavior push on
+            # in alternate steps, closer to the obstacles every time.
+            action = np.asarray(recovery_action)
+            intervention = 1.0
+            self.hold_left -= 1
+        elif intervention:
+            self.hold_left = self.recovery_hold - 1
         i = self.index
         if self.record_state:
             self.chunk["q_r"][i] = float(q_r)
@@ -169,6 +187,7 @@ class Actor:
         if terminated:
             # The hard constraint was violated, the system has to be reset.
             stats["violations"] += 1
+            self.hold_left = 0
             reset_start = time.perf_counter()
             next_obs = self.env.reset()
             paused += time.perf_counter() - reset_start
@@ -223,7 +242,14 @@ def actor_loop(
         if should_stop():
             return
         params = params_source.read()
-    actor = Actor(env, policy_step, agent_cfg["chunk_size"], seed, record_state)
+    actor = Actor(
+        env,
+        policy_step,
+        agent_cfg["chunk_size"],
+        seed,
+        record_state,
+        agent_cfg.get("recovery_hold", 1),
+    )
     actor.set_params(jnp.asarray(params))
     actor.warmup()
     # Signal the learner that the actor is ready.

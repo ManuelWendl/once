@@ -91,7 +91,12 @@ class _SyncActor:
             agent_cfg.get("recovery_observation_size"),
         )
         self._actor = Actor(
-            env, policy_step, agent_cfg["chunk_size"], seed, record_state
+            env,
+            policy_step,
+            agent_cfg["chunk_size"],
+            seed,
+            record_state,
+            agent_cfg.get("recovery_hold", 1),
         )
 
     def publish(self, params: Any) -> None:

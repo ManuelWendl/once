@@ -46,6 +46,10 @@ agent:
   # As gtg_once_stop_h70. With the priors of gtg_prior_stop_h70, Q_R is 0.90 to
   # 0.96 standing in R, and 0.9 blocks most actions of a goal seeking controller.
   recovery_threshold: 0.85
+  # Handing control back after every step, a robot driving straight to the goals
+  # inches into the hazards in alternate steps: with 88a9of6u (adversary), 14
+  # violations in 3 x 2000 steps, none when the backup holds for 10 steps.
+  recovery_hold: 10
   # Matched to the disagreement of the learned model online, such that the
   # filter does not lock up. It was about 0.1 before stable_steering, which
   # lowers the disagreement of the model to about 0.35x (trained on the same

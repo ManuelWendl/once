@@ -68,6 +68,9 @@ intervention_continue: false
 recovery_observation_size: null
 # The behavior action is only taken if Q_R(s, a) >= recovery_threshold.
 recovery_threshold: 0.99
+# Steps the recovery prior keeps control on the system once it takes over, the
+# first included. 1: the filter decides at every step.
+recovery_hold: 1
 # Q_R target: recovery_reward - 2 * penalty_scale * max(disagreement - margin, 0)
 penalty_scale: 1.0
 margin: 0.01

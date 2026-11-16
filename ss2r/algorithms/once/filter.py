@@ -94,6 +94,7 @@ def make_recovery_filter_fn(
                 "policy_distance": jnp.linalg.norm(mode_a - action, axis=-1),
                 "q_r": q_r,
                 "behavior_action": behavioral_action,
+                "recovery_action": recovery_action,
             }
             return action, extras
 
