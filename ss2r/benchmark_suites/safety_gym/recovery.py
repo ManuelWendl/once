@@ -48,6 +48,11 @@ RESET_ANGULAR_VELOCITY = 3.0
 # by default.
 ADVERSARY_FRACTION = 0.0
 ADVERSARY_MAX_STEPS = 10
+# Who sends the actions in an adversary phase: the learned adversary or, with
+# goal_driver_fraction and random_driver_fraction, a scripted driver.
+ADVERSARY_DRIVER = 0
+GOAL_DRIVER = 1
+RANDOM_DRIVER = 2
 
 
 def obstacle_distance(obs):
@@ -150,7 +155,10 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
 
     With `adversary_fraction`, a share of the episodes starts with a handover
     adversary's phase: `state.info["adversary_left"]` counts its control steps
-    left, `state.info["adversary_obs"]` is the adversary's observation.
+    left, `state.info["adversary_obs"]` is the adversary's observation. With
+    `goal_driver_fraction` and `random_driver_fraction`, a scripted driver sends
+    the actions of that share of the phases instead (`state.info["driver"]`), the
+    ones in `state.info["driver_action"]`.
     """
 
     def __init__(
@@ -181,6 +189,8 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
         action_repeat: int = 1,
         adversary_fraction: float = ADVERSARY_FRACTION,
         adversary_max_steps: int = ADVERSARY_MAX_STEPS,
+        goal_driver_fraction: float = 0.0,
+        random_driver_fraction: float = 0.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -228,9 +238,35 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             raise ValueError(f"adversary_max_steps {adversary_max_steps} is below 1")
         self._adversary_fraction = adversary_fraction
         self._adversary_max_steps = int(adversary_max_steps)
+        # Handovers as the filter of ONCE makes them: in these shares of the
+        # adversary's phases, a goal seeking driver or a held random action sends
+        # the actions instead of the learned adversary. The adversary hardly ever
+        # makes the robot violate the constraint, such that Q_R barely sees
+        # actions that lead into an obstacle, and none of a goal seeking policy.
+        if (
+            min(goal_driver_fraction, random_driver_fraction) < 0.0
+            or goal_driver_fraction + random_driver_fraction > 1.0
+        ):
+            raise ValueError(
+                f"goal_driver_fraction {goal_driver_fraction} and "
+                f"random_driver_fraction {random_driver_fraction} are no shares"
+            )
+        self._goal_driver_fraction = goal_driver_fraction
+        self._random_driver_fraction = random_driver_fraction
+        if self.has_scripted_drivers:
+            if not self.has_adversary:
+                raise ValueError(
+                    "Scripted drivers act in the adversary's phase: set "
+                    "adversary_fraction."
+                )
+            if self.action_size != 2:
+                raise ValueError("Scripted drivers need the point robot.")
         if self.has_adversary:
             # A new episode takes these from its reset (ResampleAutoResetWrapper).
-            self.episode_info_keys = ("adversary_left", "adversary_obs")
+            keys: tuple[str, ...] = ("adversary_left", "adversary_obs")
+            if self.has_scripted_drivers:
+                keys += ("driver", "driver_params", "driver_key", "driver_action")
+            self.episode_info_keys = keys
         # Start as close to the obstacles as the hard constraint allows.
         obstacle_keepouts = [
             self.spec[name].keepout
@@ -319,11 +355,66 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             state.info["adversary_obs"] = self.adversary_observation(data, left)
             state.metrics["adversary/acting"] = jp.zeros(())
             state.metrics["adversary/violated"] = jp.zeros(())
+            if self.has_scripted_drivers:
+                self._reset_driver(jax.random.fold_in(rng, 6), state, data, use)
         return state.replace(data=data, obs=obs)  # type: ignore
+
+    def _reset_driver(self, rng: jax.Array, state, data, use: jax.Array) -> None:
+        """Draws who drives the episode's adversary phase, and the driver's
+        parameters: the goal driver's thrust (0.5 to 1) and the std of its
+        steering noise (up to 0.3), the random driver's action."""
+        k_driver, k_params, k_held, k_noise = jax.random.split(rng, 4)
+        u = jax.random.uniform(k_driver)
+        driver = jp.where(
+            u < self._goal_driver_fraction,
+            GOAL_DRIVER,
+            jp.where(
+                u < self._goal_driver_fraction + self._random_driver_fraction,
+                RANDOM_DRIVER,
+                ADVERSARY_DRIVER,
+            ),
+        )
+        driver = jp.where(use, driver, ADVERSARY_DRIVER).astype(jp.int32)
+        params = jp.concatenate(
+            [
+                jax.random.uniform(
+                    k_params,
+                    (2,),
+                    minval=jp.asarray([0.5, 0.0]),
+                    maxval=jp.asarray([1.0, 0.3]),
+                ),
+                jax.random.uniform(k_held, (2,), minval=-1.0, maxval=1.0),
+            ]
+        )
+        state.info["driver"] = driver
+        state.info["driver_params"] = params
+        state.info["driver_key"] = k_noise
+        state.info["driver_action"] = self._driver_action(data, driver, params, k_noise)
+        state.metrics["adversary/goal_driver_violated"] = jp.zeros(())
+        state.metrics["adversary/random_driver_violated"] = jp.zeros(())
+
+    def _driver_action(
+        self, data, driver: jax.Array, params: jax.Array, key: jax.Array
+    ) -> jax.Array:
+        """The action of a scripted driver. The goal driver thrusts when it faces
+        the goal and steers towards it, as a goal seeking policy (the probes of
+        utility_scripts/check_gtg_prior.py); the random driver holds its action."""
+        rotation = data.xmat[self._robot_body_id].reshape(3, 3)
+        local = rotation.T @ self._robot_to_goal(data)
+        angle = jp.arctan2(local[1], local[0])
+        thrust = jp.where(jp.abs(angle) < 0.5, params[0], 0.0)
+        steering = jp.clip(2.0 * angle + params[1] * jax.random.normal(key), -1, 1)
+        goal_action = jp.stack([thrust, steering])
+        action = jp.where(driver == RANDOM_DRIVER, params[2:4], goal_action)
+        return action.astype(jp.float32)
 
     @property
     def has_adversary(self) -> bool:
         return self._adversary_fraction > 0.0
+
+    @property
+    def has_scripted_drivers(self) -> bool:
+        return self._goal_driver_fraction + self._random_driver_fraction > 0.0
 
     @property
     def adversary_observation_size(self) -> int:
@@ -493,6 +584,9 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
     def step(self, state: go_to_goal.State, action: jax.Array) -> go_to_goal.State:
         dwell, substep = state.info["recovery_dwell"], state.info["substep"]
         adversary_left = state.info.get("adversary_left")
+        driver = state.info.get("driver")
+        driver_key = state.info.get("driver_key")
+        driver_action = state.info.get("driver_action")
         # The auto reset does not reset the info: a new episode starts with zero
         # steps. The step within the control step needs no reset, as episodes
         # end with a control step.
@@ -550,5 +644,21 @@ class GoToGoalRecovery(go_to_goal.GoToGoal):
             nstate.metrics["adversary/violated"] = (violated & acting).astype(
                 jp.float32
             )
+            if self.has_scripted_drivers:
+                # A new action once per control step, which the wrapper repeats.
+                key, k_noise = jax.random.split(driver_key)
+                new_action = self._driver_action(
+                    nstate.data, driver, nstate.info["driver_params"], k_noise
+                )
+                nstate.info["driver_action"] = jp.where(
+                    end_of_control_step, new_action, driver_action
+                )
+                nstate.info["driver_key"] = jp.where(
+                    end_of_control_step, key, driver_key
+                )
+                for name, kind in (("goal", GOAL_DRIVER), ("random", RANDOM_DRIVER)):
+                    nstate.metrics[f"adversary/{name}_driver_violated"] = (
+                        violated & acting & (driver == kind)
+                    ).astype(jp.float32)
         done = jp.maximum(nstate.done, terminate.astype(nstate.done.dtype))
         return nstate.replace(done=done)  # type: ignore

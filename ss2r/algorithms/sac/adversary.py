@@ -133,6 +133,14 @@ class Adversary:
         )
         adversary_action, _ = adversary_policy(adversary_obs, k_adversary)
         acting = env_state.info["adversary_left"] > 0
+        if "driver" in env_state.info:
+            # Phases of a scripted driver (goal_driver_fraction and
+            # random_driver_fraction of the env). The adversary learns from them
+            # as from the backup's transitions, off-policy.
+            scripted = env_state.info["driver"] > 0
+            adversary_action = jnp.where(
+                scripted[..., None], env_state.info["driver_action"], adversary_action
+            )
         action = jnp.where(acting[..., None], adversary_action, backup_action)
         nstate = env.step(env_state, action)
         state_extras = {name: nstate.info[name] for name in extra_fields}

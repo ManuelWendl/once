@@ -7,7 +7,7 @@ import tempfile
 import hydra
 import jax
 from brax.training.agents.sac import checkpoint
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 
 from ss2r import benchmark_suites
 from ss2r.algorithms import once, sac
@@ -32,6 +32,20 @@ def get_prior_cfg(cfg):
             *cfg.prior.overrides,
         ],
     )
+
+
+def set_recovery_observation(cfg, prior_cfg):
+    """Unless set, the values of the observation that the recovery prior sees, from
+    its experiment: all but the goal lidar for go to goal priors without it."""
+    agent = cfg.agent
+    if agent.get("recovery_observation_indices") is not None:
+        return
+    if agent.get("recovery_observation_size") is not None:
+        return
+    indices = benchmark_suites.get_observation_indices(prior_cfg)
+    if indices is not None:
+        with open_dict(cfg):
+            cfg.agent.recovery_observation_indices = indices
 
 
 def train_recovery_prior(prior_cfg, logger):
@@ -108,12 +122,13 @@ def get_recovery_prior(cfg, prior_cfg, logger):
 
 @hydra.main(version_base=None, config_path="ss2r/configs", config_name="train_once")
 def main(cfg):
+    prior_cfg = get_prior_cfg(cfg)
+    set_recovery_observation(cfg, prior_cfg)
     _LOG.info(
         f"Setting up experiment with the following configuration: "
         f"\n{OmegaConf.to_yaml(cfg)}"
     )
     logger = TrainingLogger(cfg)
-    prior_cfg = get_prior_cfg(cfg)
     with jax.disable_jit(not cfg.jit):
         prior_params, prior_steps = get_recovery_prior(cfg, prior_cfg, logger)
         _LOG.info("Starting online training.")

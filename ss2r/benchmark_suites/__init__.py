@@ -57,6 +57,7 @@ from ss2r.benchmark_suites.wrappers import (
     Saute,
     SPiDR,
     WalkerObservationWrapper,
+    go_to_goal_indices_without_goal,
     wrap,
 )
 
@@ -105,6 +106,15 @@ dm_control_suite.register_environment(
 )
 
 
+def get_observation_indices(cfg) -> list[int] | None:
+    """The values of the task's full observation that an agent trained with `cfg`
+    sees (for a recovery prior, of the observation online), None for all of them."""
+    if cfg.environment.task_name in ("go_to_goal", "go_to_goal_recovery"):
+        if not cfg.environment.get("observe_goal", True):
+            return go_to_goal_indices_without_goal()
+    return None
+
+
 def get_wrap_env_fn(cfg):
     if (
         cfg.environment.task_name == "SafeWalkerWalk"
@@ -119,7 +129,9 @@ def get_wrap_env_fn(cfg):
     elif cfg.environment.task_name in ("go_to_goal", "go_to_goal_recovery"):
 
         def wrap_fn(env):
-            env = GoToGoalObservationWrapper(env)
+            env = GoToGoalObservationWrapper(
+                env, cfg.environment.get("observe_goal", True)
+            )
             return env
 
         out = wrap_fn, wrap_fn

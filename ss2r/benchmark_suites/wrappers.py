@@ -606,18 +606,35 @@ class Saute(Wrapper):
         return nstate
 
 
-class GoToGoalObservationWrapper(Wrapper):
-    """Wrapper that filters GoToGoal observations to keep only dimensions with significant variance."""
+# The goal lidar in the observation of GoToGoalObservationWrapper (with the goal).
+GO_TO_GOAL_GOAL_LIDAR = range(16, 32)
+GO_TO_GOAL_OBSERVATION_SIZE = 39
 
-    def __init__(self, env):
+
+def go_to_goal_indices_without_goal() -> list[int]:
+    """The values of the GoToGoalObservationWrapper observation that one with
+    observe_goal=False keeps: the obstacle lidar and the sensors."""
+    return [
+        i for i in range(GO_TO_GOAL_OBSERVATION_SIZE) if i not in GO_TO_GOAL_GOAL_LIDAR
+    ]
+
+
+class GoToGoalObservationWrapper(Wrapper):
+    """Wrapper that filters GoToGoal observations to keep only dimensions with significant variance.
+
+    Without observe_goal, it also drops the goal lidar: a recovery prior does not
+    need the goal, and its Q_R otherwise depends on it.
+    """
+
+    def __init__(self, env, observe_goal: bool = True):
         """Initialize the wrapper with indices to keep based on std > 1e-6."""
         super().__init__(env)
         # Keep only indices where std > 1e-6
         # These are indices 0-31 and 48-54 based on the provided std values
-        self.keep_indices = jp.array(
-            list(range(0, 32)) + list(range(48, 55)),
-            dtype=jp.int32,
-        )
+        keep = list(range(0, 32)) + list(range(48, 55))
+        if not observe_goal:
+            keep = [keep[i] for i in go_to_goal_indices_without_goal()]
+        self.keep_indices = jp.array(keep, dtype=jp.int32)
 
     def _filter_obs(self, obs):
         """Filter observation to keep only the specified indices."""

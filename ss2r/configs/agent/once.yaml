@@ -66,6 +66,9 @@ intervention_continue: false
 # The recovery prior sees the first this many values of the observation (null: all of
 # them), for a prior trained on a part of the real system's observation.
 recovery_observation_size: null
+# Or these values of it. Null takes them from the prior's experiment: the go to goal
+# priors without the goal lidar (environment.observe_goal: false) see all but it.
+recovery_observation_indices: null
 # The behavior action is only taken if Q_R(s, a) >= recovery_threshold.
 recovery_threshold: 0.99
 # Steps the recovery prior keeps control on the system once it takes over, the

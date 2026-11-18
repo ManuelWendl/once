@@ -26,7 +26,7 @@ from ss2r.algorithms.once.actor import (
 )
 from ss2r.algorithms.once.filter import get_filter_params
 from ss2r.algorithms.once.learner import make_learner
-from ss2r.algorithms.once.networks import make_networks
+from ss2r.algorithms.once.networks import make_networks, recovery_input_size
 from ss2r.algorithms.once.remote import RemoteActor
 from ss2r.algorithms.once.shared_params import SharedParams
 from ss2r.algorithms.once.trajectory import TrajectoryWriter
@@ -88,7 +88,7 @@ class _SyncActor:
         policy_step, _ = make_policy_step(
             *networks,
             env.observation_size,
-            agent_cfg.get("recovery_observation_size"),
+            recovery_input_size(agent_cfg, env.observation_size),
         )
         self._actor = Actor(
             env,
@@ -314,7 +314,7 @@ def train(
             mbpo_network,
             recovery_network,
             observation_size,
-            c.get("recovery_observation_size"),
+            recovery_input_size(c, observation_size),
         )
         actor = RemoteActor(c["remote_bind"], num_params, c["remote_exchange_hz"])
     elif c["asynchronous"]:
@@ -322,7 +322,7 @@ def train(
             mbpo_network,
             recovery_network,
             observation_size,
-            c.get("recovery_observation_size"),
+            recovery_input_size(c, observation_size),
         )
         actor = _AsyncActor(
             environment_cfg,

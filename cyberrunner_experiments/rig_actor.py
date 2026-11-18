@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 from ss2r.algorithms.once.actor import actor_loop, make_actor_policy
 from ss2r.algorithms.once.remote import RobotServer
 from ss2r.benchmark_suites import mujoco_cpu
-from train_once import get_prior_cfg
+from train_once import get_prior_cfg, set_recovery_observation
 
 # Without a request of the learner for this long, the actor stops.
 LEARNER_TIMEOUT_S = 60.0
@@ -27,8 +27,10 @@ def main(cfg) -> None:
     jax.config.update("jax_platforms", "cpu")
     to_container = lambda x: OmegaConf.to_container(x, resolve=True)
     environment_cfg = to_container(cfg.environment)
+    prior_cfg = get_prior_cfg(cfg)
+    set_recovery_observation(cfg, prior_cfg)
     agent_cfg = to_container(cfg.agent)
-    prior_agent_cfg = to_container(get_prior_cfg(cfg).agent)
+    prior_agent_cfg = to_container(prior_cfg.agent)
     env = mujoco_cpu.make(
         environment_cfg, cfg.training.action_repeat, cfg.training.seed
     )

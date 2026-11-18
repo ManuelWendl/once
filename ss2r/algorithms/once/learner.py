@@ -18,6 +18,10 @@ import ss2r.algorithms.mbpo.losses as mbpo_losses
 import ss2r.algorithms.sac.losses as sac_losses
 from ss2r.algorithms.mbpo.networks import MBPONetworks
 from ss2r.algorithms.once import buffer as ring_buffer
+from ss2r.algorithms.once.networks import (
+    expand_normalizer,
+    recovery_observation_indices,
+)
 from ss2r.algorithms.once.types import (
     OnceTrainingState,
     RecoveryRolloutState,
@@ -75,6 +79,8 @@ def make_learner(
 ):
     """Creates the initialization, data insertion and learner step functions."""
     c = agent_cfg
+    # The values of the observation that the recovery prior sees (None: all).
+    recovery_indices = recovery_observation_indices(c, observation_size)
     model_updates = c["model_grad_updates_per_step"]
     critic_updates = c["critic_grad_updates_per_step"]
     recovery_updates = c["recovery_grad_updates_per_step"]
@@ -213,15 +219,20 @@ def make_learner(
             policy_params = recovery_policy_params
             normalizer_params = recovery_normalizer_params
         if c["init_normalizer_from_prior"]:
+            prior_normalizer_params = recovery_normalizer_params
+            if recovery_indices is not None:
+                # The values the prior does not see stay unnormalized.
+                prior_normalizer_params = expand_normalizer(
+                    prior_normalizer_params, recovery_indices, observation_size
+                )
             _check_same_structure(
-                recovery_normalizer_params,
+                prior_normalizer_params,
                 normalizer_params,
                 "observation normalizer",
-                "The prior sees only a part of the observation.",
             )
             # Statistics of the simulation, such that no observation starts with
             # a vanishing standard deviation.
-            normalizer_params = recovery_normalizer_params
+            normalizer_params = prior_normalizer_params
         training_state = OnceTrainingState(  # type: ignore
             behavior_policy_params=policy_params,
             behavior_policy_optimizer_state=policy_optimizer.init(policy_params),

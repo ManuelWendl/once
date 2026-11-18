@@ -12,7 +12,7 @@ from ss2r.algorithms.once.filter import (
     make_filter_params_template,
     make_recovery_filter_fn,
 )
-from ss2r.algorithms.once.networks import make_networks
+from ss2r.algorithms.once.networks import make_networks, recovery_input_size
 from ss2r.algorithms.once.shared_params import SharedParams
 from ss2r.benchmark_suites.mujoco_cpu import RealEnv
 
@@ -221,7 +221,7 @@ def make_actor_policy(
         mbpo_network,
         recovery_network,
         env.observation_size,
-        agent_cfg.get("recovery_observation_size"),
+        recovery_input_size(agent_cfg, env.observation_size),
     )
 
 
