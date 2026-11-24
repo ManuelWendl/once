@@ -1,0 +1,30 @@
+# @package _global_
+# As go_to_goal_recovery_prior_adversary, with handovers as the filter of ONCE makes
+# them, and without the goal lidar. On the CPU system, the priors of
+# gtg_prior_adversary_h70 (e.g. 88a9of6u, 3t6uzwex) give the actions of a goal seeking
+# driver that run into a hazard within the control step a Q_R of 0.87-0.89, which
+# the backup recovers from in 74-82% of the cases otherwise: in training, 0.3-0.5% of
+# the episodes ended in a violation, the adversary caused 0-0.2%, and nothing drove
+# as a goal seeking policy does. Their Q_R also moved by 0.05-0.13 with the goal
+# lidar alone, which locked up the filter where the backup parked the robot (max_a
+# Q_R 0.82). Check new priors with utility_scripts/check_gtg_prior.py, and run ONCE
+# with prior.experiment=go_to_goal_recovery_prior_driver.
+defaults:
+  - go_to_goal_recovery_prior_adversary
+  - _self_
+
+environment:
+  # The goal says nothing about recovering. The prior's policy and Q_R see the
+  # obstacle lidar and the sensors only.
+  observe_goal: false
+  task_params:
+    # Of the adversary's phases (adversary_fraction: half of the episodes): 50% a
+    # goal seeking driver (thrust 0.5 to 1 when facing the goal, steering towards it
+    # with noise), 20% a random action held for the phase, the other 30% the
+    # learned adversary.
+    goal_driver_fraction: 0.5
+    random_driver_fraction: 0.2
+    # Up to 1.6 s, 29% of the horizon. With the backup of 88a9of6u taking over, 10%
+    # of the goal driver's episodes end in a violation (9% during its phase), 4%
+    # with up to 10 steps (2%), which leaves the robot too little time to speed up.
+    adversary_max_steps: 20
