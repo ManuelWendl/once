@@ -7,6 +7,7 @@ from brax.training.acme import running_statistics, specs
 from brax.training.types import PRNGKey
 
 from ss2r.algorithms.mbpo.networks import MBPONetworks
+from ss2r.algorithms.once.networks import recovery_input
 from ss2r.algorithms.once.types import OnceTrainingState
 from ss2r.algorithms.sac.networks import SafeSACNetworks
 
@@ -47,10 +48,17 @@ def make_filter_params_template(
 def make_recovery_filter_fn(
     mbpo_network: MBPONetworks,
     recovery_network: SafeSACNetworks,
-) -> Callable[[Any, bool], types.Policy]:
-    """Takes the behavior action only if the recovery prior can still recover."""
+    time_horizon: Optional[int] = None,
+) -> Callable[[Any, bool], Callable]:
+    """Takes the behavior action only if the recovery prior can still recover.
 
-    def make_policy(params: Any, deterministic: bool = False) -> types.Policy:
+    With `time_horizon` (a prior that sees the control steps spent of its episode),
+    Q_R is asked with none spent: whether the prior recovers within the horizon
+    after the behavior action. The prior acts with the `spent` steps of its current
+    recovery.
+    """
+
+    def make_policy(params: Any, deterministic: bool = False) -> Callable:
         (
             normalizer_params,
             policy_params,
@@ -61,7 +69,7 @@ def make_recovery_filter_fn(
         ) = params
 
         def policy(
-            observations: types.Observation, key_sample: PRNGKey
+            observations: types.Observation, key_sample: PRNGKey, spent: Any = 0
         ) -> Tuple[types.Action, types.Extra]:
             logits = mbpo_network.policy_network.apply(
                 normalizer_params, policy_params, observations
@@ -74,7 +82,9 @@ def make_recovery_filter_fn(
                     logits, key_sample
                 )
             recovery_logits = recovery_network.policy_network.apply(
-                recovery_normalizer_params, recovery_policy_params, observations
+                recovery_normalizer_params,
+                recovery_policy_params,
+                recovery_input(observations, spent, time_horizon),
             )
             recovery_action = recovery_network.parametric_action_distribution.mode(
                 recovery_logits
@@ -82,7 +92,7 @@ def make_recovery_filter_fn(
             q_r = recovery_network.qr_network.apply(
                 recovery_normalizer_params,
                 recovery_q_params,
-                observations,
+                recovery_input(observations, 0, time_horizon),
                 behavioral_action,
             ).mean(axis=-1)
             can_recover = q_r >= recovery_threshold

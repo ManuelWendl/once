@@ -1,6 +1,7 @@
 import functools
 from typing import Any, Mapping, Optional, Tuple
 
+import jax
 import jax.nn as jnn
 import jax.numpy as jnp
 from brax.training import types as brax_types
@@ -35,10 +36,63 @@ def recovery_observation_indices(
     return None
 
 
-def recovery_input_size(agent_cfg: Mapping[str, Any], observation_size: int) -> int:
-    """The size of the observation that the recovery prior sees."""
+def recovery_time_horizon(agent_cfg: Mapping[str, Any]) -> Optional[int]:
+    """The horizon of a prior that sees the control steps spent of its episode (as
+    a share of it, environment.observe_time), None for a prior that does not."""
+    horizon = agent_cfg.get("recovery_time_horizon")
+    return None if horizon is None else int(horizon)
+
+
+def recovery_input(
+    observation: jax.Array, spent: Any, time_horizon: Optional[int]
+) -> jax.Array:
+    """The input of the prior's networks: the observation, followed by the share of
+    the horizon spent if the prior sees it. The networks select what they see."""
+    if time_horizon is None:
+        return observation
+    share = jnp.broadcast_to(
+        jnp.asarray(spent, observation.dtype) / time_horizon, observation.shape[:-1]
+    )
+    return jnp.concatenate([observation, share[..., None]], axis=-1)
+
+
+def recovery_input_indices(
+    agent_cfg: Mapping[str, Any], observation_size: int
+) -> Optional[Tuple[int, ...]]:
+    """The values of `recovery_input` that the prior sees, None for all of them."""
     indices = recovery_observation_indices(agent_cfg, observation_size)
+    if recovery_time_horizon(agent_cfg) is None:
+        return indices
+    observed = tuple(range(observation_size)) if indices is None else indices
+    return observed + (observation_size,)
+
+
+def recovery_input_size(agent_cfg: Mapping[str, Any], observation_size: int) -> int:
+    """The size of the input that the recovery prior sees."""
+    indices = recovery_input_indices(agent_cfg, observation_size)
     return observation_size if indices is None else len(indices)
+
+
+def prior_observation_statistics(
+    normalizer_params: running_statistics.RunningStatisticsState,
+    agent_cfg: Mapping[str, Any],
+    observation_size: int,
+) -> running_statistics.RunningStatisticsState:
+    """The statistics of the prior's normalizer for the observation (for
+    init_normalizer_from_prior): without its time, unnormalized where it does not
+    see the observation."""
+    indices = recovery_input_indices(agent_cfg, observation_size)
+    if indices is None:
+        return normalizer_params
+    timed = recovery_time_horizon(agent_cfg) is not None
+    full = expand_normalizer(normalizer_params, indices, observation_size + timed)
+    if not timed:
+        return full
+    return full.replace(  # type: ignore[attr-defined]
+        mean=full.mean[:observation_size],
+        summed_variance=full.summed_variance[:observation_size],
+        std=full.std[:observation_size],
+    )
 
 
 def expand_normalizer(
@@ -74,9 +128,9 @@ def make_networks(
     """Creates the behavior/model networks and the recovery prior networks.
 
     The recovery networks are created exactly as when training the prior, so
-    that its parameters and observation normalization can be used as is. With
-    `recovery_observation_indices` or `recovery_observation_size`, they see only
-    those values of the observation.
+    that its parameters and observation normalization can be used as is. They
+    take `recovery_input`. With `recovery_observation_indices` or
+    `recovery_observation_size`, they see only those values of the observation.
     """
     normalize_fn = lambda x, y: x
     if agent_cfg["normalize_observations"]:
@@ -96,7 +150,7 @@ def make_networks(
         n_heads=agent_cfg["n_heads"],
         safe=False,
     )
-    indices = recovery_observation_indices(agent_cfg, observation_size)
+    indices = recovery_input_indices(agent_cfg, observation_size)
     recovery_normalize_fn = lambda x, y: x
     if prior_agent_cfg["normalize_observations"]:
         recovery_normalize_fn = running_statistics.normalize

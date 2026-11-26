@@ -19,8 +19,9 @@ import ss2r.algorithms.sac.losses as sac_losses
 from ss2r.algorithms.mbpo.networks import MBPONetworks
 from ss2r.algorithms.once import buffer as ring_buffer
 from ss2r.algorithms.once.networks import (
-    expand_normalizer,
-    recovery_observation_indices,
+    prior_observation_statistics,
+    recovery_input,
+    recovery_time_horizon,
 )
 from ss2r.algorithms.once.types import (
     OnceTrainingState,
@@ -79,14 +80,25 @@ def make_learner(
 ):
     """Creates the initialization, data insertion and learner step functions."""
     c = agent_cfg
-    # The values of the observation that the recovery prior sees (None: all).
-    recovery_indices = recovery_observation_indices(c, observation_size)
+    # For a prior that sees the control steps spent of its episode: its horizon.
+    time_horizon = recovery_time_horizon(c)
+    if time_horizon is not None and time_horizon != c["recovery_horizon"]:
+        raise ValueError(
+            f"The prior's horizon {time_horizon} is not recovery_horizon "
+            f"{c['recovery_horizon']}."
+        )
     model_updates = c["model_grad_updates_per_step"]
     critic_updates = c["critic_grad_updates_per_step"]
     recovery_updates = c["recovery_grad_updates_per_step"]
     # In the task model rollouts, an intervention executes the action of the
     # prior and continues, instead of terminating the rollout.
     intervention_continue = c.get("intervention_continue", False)
+    # Task reward of a model step that ends in a violation (the rollout ends there),
+    # by default the one of an intervention. The imagine baseline sets a large
+    # penalty (SMBPO, Thomas et al. 2021).
+    violation_reward = c.get("violation_task_reward")
+    if violation_reward is None:
+        violation_reward = c["intervention_task_reward"]
     num_actor_updates = -(-critic_updates // c["num_critic_updates_per_actor_update"])
     num_task_transitions = c["num_model_rollouts"] * c["unroll_length"]
     if num_task_transitions < c["sac_batch_size"] * critic_updates:
@@ -179,8 +191,11 @@ def make_learner(
     behavior_dummy_transition = make_dummy_transition(
         observation_size, action_size, behavior=True
     )
+    # The recovery buffer holds the prior's input (recovery_input).
     recovery_dummy_transition = make_dummy_transition(
-        observation_size, action_size, PessimisticReward.required_extras
+        observation_size + (time_horizon is not None),
+        action_size,
+        PessimisticReward.required_extras,
     )
 
     def init(
@@ -219,12 +234,10 @@ def make_learner(
             policy_params = recovery_policy_params
             normalizer_params = recovery_normalizer_params
         if c["init_normalizer_from_prior"]:
-            prior_normalizer_params = recovery_normalizer_params
-            if recovery_indices is not None:
-                # The values the prior does not see stay unnormalized.
-                prior_normalizer_params = expand_normalizer(
-                    prior_normalizer_params, recovery_indices, observation_size
-                )
+            # Without the prior's time; the values it does not see stay unnormalized.
+            prior_normalizer_params = prior_observation_statistics(
+                recovery_normalizer_params, c, observation_size
+            )
             _check_same_structure(
                 prior_normalizer_params,
                 normalizer_params,
@@ -381,10 +394,11 @@ def make_learner(
                 obs,
             )
             action = action_distribution.sample(logits, key_action)
+            # As the filter: whether the prior recovers within its horizon.
             q_r = recovery_q_network.apply(
                 training_state.recovery_normalizer_params,
                 training_state.recovery_q_params,
-                obs,
+                recovery_input(obs, 0, time_horizon),
                 action,
             ).mean(axis=-1)
             # The recovery prior takes over when it might not be able to recover
@@ -394,20 +408,23 @@ def make_learner(
                 # As on the system: the action of the prior is executed and the
                 # rollout continues. The behavior gets the intervention task
                 # reward on top, and terminates only on a violation.
+                # As the actor: after an action of the behavior, the prior's
+                # recovery has spent one step.
                 prior_logits = recovery_policy_network.apply(
                     training_state.recovery_normalizer_params,
                     training_state.recovery_policy_params,
-                    obs,
+                    recovery_input(obs, 1, time_horizon),
                 )
                 prior_action = recovery_action_distribution.mode(prior_logits)
                 executed = jnp.where(intervention[:, None], prior_action, action)
                 next_obs_mean, next_obs_sample, reward, disagreement = predict(
                     training_state, obs, executed, key_model
                 )
-                terminated = violates_fn(next_obs_mean)
+                violated = violates_fn(next_obs_mean)
+                terminated = violated
                 task_reward = jnp.where(
-                    terminated,
-                    c["intervention_task_reward"],
+                    violated,
+                    violation_reward,
                     reward
                     + bonus_scale * disagreement
                     + intervention * c["intervention_task_reward"],
@@ -417,10 +434,13 @@ def make_learner(
                     training_state, obs, action, key_model
                 )
                 # The behavior gets the worst task reward and terminates.
-                terminated = intervention | violates_fn(next_obs_mean)
+                violated = violates_fn(next_obs_mean)
+                terminated = intervention | violated
                 task_reward = jnp.where(
                     terminated,
-                    c["intervention_task_reward"],
+                    jnp.where(
+                        violated, violation_reward, c["intervention_task_reward"]
+                    ),
                     reward + bonus_scale * disagreement,
                 )
             transitions = Transition(
@@ -440,6 +460,7 @@ def make_learner(
             metrics = {
                 "disagreement": disagreement.mean(),
                 "model_intervention": intervention.astype(jnp.float32).mean(),
+                "model_violation": violated.astype(jnp.float32).mean(),
                 "model_q_r": q_r.mean(),
                 "optimism": bonus_scale,
                 "info_gain": training_state.info_gain,
@@ -554,10 +575,13 @@ def make_learner(
             )
             is_start = rollout_state.step == 0
             obs = jnp.where(is_start[:, None], start.observation, rollout_state.obs)
+            # The prior's input, with the steps of the rollout for a prior that
+            # sees the time spent of its finite horizon.
+            prior_obs = recovery_input(obs, rollout_state.step, time_horizon)
             logits = recovery_policy_network.apply(
                 training_state.recovery_normalizer_params,
                 training_state.recovery_policy_params,
-                obs,
+                prior_obs,
             )
             action = recovery_action_distribution.sample(logits, key_action)
             start_extras = start.extras["policy_extras"]
@@ -584,12 +608,12 @@ def make_learner(
             # Reaching the horizon is a true terminal state, no bootstrapping.
             done = (recovery_reward > 0.0) | violated | (step >= recovery_horizon)
             transitions = Transition(
-                observation=obs,
+                observation=prior_obs,
                 action=action,
                 # The task reward is not used by the recovery pipeline.
                 reward=jnp.zeros_like(recovery_reward),
                 discount=1.0 - done.astype(jnp.float32),
-                next_observation=next_obs,
+                next_observation=recovery_input(next_obs, step, time_horizon),
                 extras={
                     "state_extras": {
                         "truncation": jnp.zeros_like(recovery_reward),

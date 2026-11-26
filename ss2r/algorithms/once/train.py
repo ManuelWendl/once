@@ -26,7 +26,11 @@ from ss2r.algorithms.once.actor import (
 )
 from ss2r.algorithms.once.filter import get_filter_params
 from ss2r.algorithms.once.learner import make_learner
-from ss2r.algorithms.once.networks import make_networks, recovery_input_size
+from ss2r.algorithms.once.networks import (
+    make_networks,
+    recovery_input_size,
+    recovery_time_horizon,
+)
 from ss2r.algorithms.once.remote import RemoteActor
 from ss2r.algorithms.once.shared_params import SharedParams
 from ss2r.algorithms.once.trajectory import TrajectoryWriter
@@ -89,6 +93,7 @@ class _SyncActor:
             *networks,
             env.observation_size,
             recovery_input_size(agent_cfg, env.observation_size),
+            recovery_time_horizon(agent_cfg),
         )
         self._actor = Actor(
             env,
@@ -97,6 +102,7 @@ class _SyncActor:
             seed,
             record_state,
             agent_cfg.get("recovery_hold", 1),
+            recovery_time_horizon(agent_cfg),
         )
 
     def publish(self, params: Any) -> None:

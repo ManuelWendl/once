@@ -56,6 +56,7 @@ from ss2r.benchmark_suites.wrappers import (
     GoToGoalObservationWrapper,
     Saute,
     SPiDR,
+    TimeObservationWrapper,
     WalkerObservationWrapper,
     go_to_goal_indices_without_goal,
     wrap,
@@ -113,6 +114,15 @@ def get_observation_indices(cfg) -> list[int] | None:
         if not cfg.environment.get("observe_goal", True):
             return go_to_goal_indices_without_goal()
     return None
+
+
+def get_time_horizon(cfg) -> int | None:
+    """With environment.observe_time, the observation ends with the control steps
+    spent of the episode, as a share of the horizon: the horizon in control steps.
+    None without it."""
+    if not cfg.environment.get("observe_time", False):
+        return None
+    return cfg.training.episode_length // cfg.training.action_repeat
 
 
 def get_wrap_env_fn(cfg):
@@ -226,15 +236,23 @@ def get_wrap_env_fn(cfg):
 def make(cfg, train_wrap_env_fn=lambda env: env, eval_wrap_env_fn=lambda env: env):
     domain_name = get_domain_name(cfg)
     if domain_name == "brax":
-        return make_brax_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn)
+        envs = make_brax_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn)
     elif domain_name == "rccar":
-        return make_rccar_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn)
+        envs = make_rccar_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn)
     elif domain_name == "mujoco_playground":
-        return make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn)
+        envs = make_mujoco_playground_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn)
     elif domain_name == "safety_gym":
-        return make_safety_gym_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn)
+        envs = make_safety_gym_envs(cfg, train_wrap_env_fn, eval_wrap_env_fn)
     elif domain_name == "cartpole_spidr_vision":
-        return make_spidr_cartpole_vision(cfg, train_wrap_env_fn, eval_wrap_env_fn)
+        envs = make_spidr_cartpole_vision(cfg, train_wrap_env_fn, eval_wrap_env_fn)
+    else:
+        return None
+    if get_time_horizon(cfg) is not None:
+        # The control steps spent of the episode, for a finite horizon.
+        envs = tuple(
+            TimeObservationWrapper(env, cfg.training.episode_length) for env in envs
+        )
+    return envs
 
 
 def prepare_randomization_fn(key, num_envs, cfg, task_name):

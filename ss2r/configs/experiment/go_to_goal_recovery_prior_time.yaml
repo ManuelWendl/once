@@ -1,0 +1,17 @@
+# @package _global_
+# As go_to_goal_recovery_prior_driver, with the control steps spent of the episode in
+# the observation of the prior's policy and Q_R, as a share of the horizon (70
+# control steps). The horizon is finite (terminate_on_timeout) and not discounted:
+# without the time, a state that the backup never leaves takes its value from itself
+# instead of the timeout. The priors of go_to_goal_recovery_prior_driver (e.g.
+# 55sye33x, vlh8znyr) stood still next to an obstacle outside R from 1-6% of the
+# starts at rest 0.31-0.5 m from one, at a Q_R of about 0.84 for every action, which
+# locked up 4 of 6 ONCE runs. Online, Q_R is asked with no time spent: whether the
+# backup recovers within the horizon. Run ONCE with
+# prior.experiment=go_to_goal_recovery_prior_time.
+defaults:
+  - go_to_goal_recovery_prior_driver
+  - _self_
+
+environment:
+  observe_time: true

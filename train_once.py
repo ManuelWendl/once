@@ -35,17 +35,23 @@ def get_prior_cfg(cfg):
 
 
 def set_recovery_observation(cfg, prior_cfg):
-    """Unless set, the values of the observation that the recovery prior sees, from
-    its experiment: all but the goal lidar for go to goal priors without it."""
+    """Unless set, what the recovery prior sees, from its experiment: the values of
+    the observation (all but the goal lidar for go to goal priors without it), and
+    the horizon of a prior that sees the time spent of its episode."""
     agent = cfg.agent
-    if agent.get("recovery_observation_indices") is not None:
-        return
-    if agent.get("recovery_observation_size") is not None:
-        return
-    indices = benchmark_suites.get_observation_indices(prior_cfg)
-    if indices is not None:
-        with open_dict(cfg):
-            cfg.agent.recovery_observation_indices = indices
+    if (
+        agent.get("recovery_observation_indices") is None
+        and agent.get("recovery_observation_size") is None
+    ):
+        indices = benchmark_suites.get_observation_indices(prior_cfg)
+        if indices is not None:
+            with open_dict(cfg):
+                cfg.agent.recovery_observation_indices = indices
+    if agent.get("recovery_time_horizon") is None:
+        horizon = benchmark_suites.get_time_horizon(prior_cfg)
+        if horizon is not None:
+            with open_dict(cfg):
+                cfg.agent.recovery_time_horizon = horizon
 
 
 def train_recovery_prior(prior_cfg, logger):

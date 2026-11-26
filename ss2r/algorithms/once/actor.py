@@ -12,7 +12,11 @@ from ss2r.algorithms.once.filter import (
     make_filter_params_template,
     make_recovery_filter_fn,
 )
-from ss2r.algorithms.once.networks import make_networks, recovery_input_size
+from ss2r.algorithms.once.networks import (
+    make_networks,
+    recovery_input_size,
+    recovery_time_horizon,
+)
 from ss2r.algorithms.once.shared_params import SharedParams
 from ss2r.benchmark_suites.mujoco_cpu import RealEnv
 
@@ -22,22 +26,26 @@ def make_policy_step(
     recovery_network,
     observation_size: int,
     recovery_observation_size: Optional[int] = None,
+    recovery_time_horizon: Optional[int] = None,
 ) -> Tuple[Callable, int]:
-    """Creates the policy step, which takes the parameters as one flat vector.
+    """Creates the policy step, which takes the parameters as one flat vector, and
+    the control steps the recovery prior spent of its current recovery.
 
     A single flat vector is cheap to move between devices and processes, and
     updating it never triggers a recompilation.
     """
-    make_policy = make_recovery_filter_fn(mbpo_network, recovery_network)
+    make_policy = make_recovery_filter_fn(
+        mbpo_network, recovery_network, recovery_time_horizon
+    )
     template = make_filter_params_template(
         mbpo_network, recovery_network, observation_size, recovery_observation_size
     )
     flat_template, unravel_fn = ravel_pytree(template)
 
     @jax.jit
-    def policy_step(flat_params, obs, key):
+    def policy_step(flat_params, obs, key, spent):
         key, key_sample = jax.random.split(key)
-        action, extras = make_policy(unravel_fn(flat_params))(obs, key_sample)
+        action, extras = make_policy(unravel_fn(flat_params))(obs, key_sample, spent)
         return (
             action,
             extras["behavior_action"],
@@ -80,6 +88,7 @@ class Actor:
         seed: int,
         record_state: bool = False,
         recovery_hold: int = 1,
+        recovery_time_horizon: Optional[int] = None,
     ):
         self.env = env
         self.policy_step = policy_step
@@ -88,6 +97,11 @@ class Actor:
         # Steps the recovery prior keeps control once it takes over, and the ones left.
         self.recovery_hold = recovery_hold
         self.hold_left = 0
+        # Control steps of the prior's current recovery, for a prior that sees them:
+        # a recovery starts with the last action of the behavior (whose outcome Q_R
+        # promised), and anew after the horizon.
+        self.recovery_time_horizon = recovery_time_horizon
+        self.spent = 0
         self.key = jax.random.PRNGKey(seed)
         self.params: Any = None
         self.obs = env.reset()
@@ -126,7 +140,7 @@ class Actor:
 
     def warmup(self) -> None:
         """Compiles the policy, without acting."""
-        self.policy_step(self.params, self.obs, self.key)
+        self.policy_step(self.params, self.obs, self.key, self.spent)
 
     def step(self) -> tuple[dict[str, np.ndarray], dict[str, float]] | None:
         """Takes one step. Returns a chunk of transitions once it is full."""
@@ -138,7 +152,7 @@ class Actor:
             intervention,
             q_r,
             self.key,
-        ) = self.policy_step(self.params, self.obs, self.key)
+        ) = self.policy_step(self.params, self.obs, self.key, self.spent)
         action = np.asarray(action)
         intervention = float(intervention)
         if self.hold_left > 0:
@@ -149,6 +163,10 @@ class Actor:
             self.hold_left -= 1
         elif intervention:
             self.hold_left = self.recovery_hold - 1
+        # A step of the behavior starts a recovery, the prior's steps continue it.
+        self.spent = self.spent + 1 if intervention else 1
+        if self.recovery_time_horizon and self.spent >= self.recovery_time_horizon:
+            self.spent = 0
         i = self.index
         if self.record_state:
             self.chunk["q_r"][i] = float(q_r)
@@ -188,6 +206,7 @@ class Actor:
             # The hard constraint was violated, the system has to be reset.
             stats["violations"] += 1
             self.hold_left = 0
+            self.spent = 0
             reset_start = time.perf_counter()
             next_obs = self.env.reset()
             paused += time.perf_counter() - reset_start
@@ -222,6 +241,7 @@ def make_actor_policy(
         recovery_network,
         env.observation_size,
         recovery_input_size(agent_cfg, env.observation_size),
+        recovery_time_horizon(agent_cfg),
     )
 
 
@@ -249,6 +269,7 @@ def actor_loop(
         seed,
         record_state,
         agent_cfg.get("recovery_hold", 1),
+        recovery_time_horizon(agent_cfg),
     )
     actor.set_params(jnp.asarray(params))
     actor.warmup()

@@ -1,0 +1,9 @@
+# @package _global_
+# Plain MBPO (SOMBRL): ONCE without the filter, the recovery prior never takes over.
+# A model rollout still ends on a predicted violation, with violation_task_reward
+# (by default intervention_task_reward). Add after the experiment, e.g.
+# +experiment=go_to_goal_once +baseline=mbpo. The run still needs a prior
+# (prior.wandb_id): it is never used to act, but with init_normalizer_from_prior it
+# gives the normalizer statistics, and without one the run trains a prior first.
+agent:
+  recovery_threshold: -1e6

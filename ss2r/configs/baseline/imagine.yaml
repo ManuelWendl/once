@@ -1,0 +1,14 @@
+# @package _global_
+# Imagine (SMBPO, Thomas et al. 2021, Safe Reinforcement Learning by Imagining the
+# Near Future): plain MBPO, where a violation in a model rollout ends the rollout with
+# a large negative reward. On the system, nothing differs from plain MBPO. Add after
+# the experiment, e.g. +experiment=go_to_goal_once +baseline=imagine; for a larger
+# penalty, agent.violation_task_reward=-100.
+defaults:
+  - mbpo
+  - _self_
+
+agent:
+  # Larger than any return: the go to goal progress reward is at most 0.12 per
+  # control step, plus 1 per goal, with discounting 0.95.
+  violation_task_reward: -10

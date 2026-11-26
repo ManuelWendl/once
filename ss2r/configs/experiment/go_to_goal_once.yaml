@@ -19,7 +19,9 @@ prior:
   # stop_angular_velocity (for those, set both to null in task_params), the
   # priors of gtg_prior_stop (e.g. w3nge2to) used 0.05 and 0.2.
   # The priors of go_to_goal_recovery_prior_driver do not see the goal lidar: for
-  # them, set prior.experiment=go_to_goal_recovery_prior_driver.
+  # them, set prior.experiment=go_to_goal_recovery_prior_driver. The ones of
+  # go_to_goal_recovery_prior_time also see the time spent of their horizon:
+  # prior.experiment=go_to_goal_recovery_prior_time.
   # Null trains a new prior in the run; set the id of a matching one to reuse it.
   wandb_id: null
 
@@ -37,7 +39,8 @@ environment:
     recovery_max_distance: 2.2
 
 agent:
-  # For the SOMBRL baseline, add agent.recovery_threshold=-1e6.
+  # Baselines: +baseline=mbpo (plain MBPO, SOMBRL: no filter), +baseline=imagine
+  # (plain MBPO, an imagined violation ends the model rollout with a large penalty).
   discounting: 0.95
   num_critic_updates_per_actor_update: 1
   optimism: 0.05

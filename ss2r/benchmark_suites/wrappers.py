@@ -207,6 +207,46 @@ class TerminalTimeoutEpisodeWrapper(CostEpisodeWrapper):
         return state
 
 
+class TimeObservationWrapper(Wrapper):
+    """Appends the share of the episode spent, from 0 to (episode_length - 1) /
+    episode_length, to the observation.
+
+    With a finite horizon (TerminalTimeoutEpisodeWrapper), the value of a state
+    depends on the time left. Without it, a state that the policy never leaves
+    takes its value from itself (with discounting 1) instead of the timeout. Wraps
+    the episode and auto reset wrappers: a new episode, also an auto reset, starts
+    at 0.
+    """
+
+    def __init__(self, env, episode_length: int):
+        super().__init__(env)
+        self.episode_length = episode_length
+
+    def _with_time(self, state, steps: jax.Array):
+        if not isinstance(state.obs, jax.Array):
+            raise NotImplementedError("The time is appended to array observations.")
+        share = (steps / self.episode_length).astype(state.obs.dtype)
+        return state.replace(obs=jp.concatenate([state.obs, share[..., None]], -1))
+
+    def reset(self, rng: jax.Array):
+        state = self.env.reset(rng)
+        return self._with_time(state, jp.zeros(state.obs.shape[:-1]))
+
+    def step(self, state, action: jax.Array):
+        state = state.replace(obs=state.obs[..., :-1])
+        state = self.env.step(state, action)
+        # Done: the observation is the first one of the next episode.
+        steps = jp.where(state.done > 0, 0.0, state.info["steps"])
+        return self._with_time(state, steps)
+
+    @property
+    def observation_size(self):
+        size = self.env.observation_size
+        if not isinstance(size, int):
+            raise NotImplementedError("The time is appended to array observations.")
+        return size + 1
+
+
 class NonEpisodicWrapper(Wrapper):
     def __init__(self, env: Env, action_repeat: int):
         super().__init__(env)

@@ -62,6 +62,10 @@ intervention_task_reward: 0.
 # and the rollout continues, with intervention_task_reward added, as on the
 # system. False: the rollout terminates with intervention_task_reward.
 intervention_continue: false
+# Task reward of a model rollout step whose predicted next observation violates the
+# constraint; the rollout ends there. Null: intervention_task_reward. The imagine
+# baseline (+baseline=imagine) sets a large penalty.
+violation_task_reward: null
 # Recovery prior.
 # The recovery prior sees the first this many values of the observation (null: all of
 # them), for a prior trained on a part of the real system's observation.
@@ -69,6 +73,11 @@ recovery_observation_size: null
 # Or these values of it. Null takes them from the prior's experiment: the go to goal
 # priors without the goal lidar (environment.observe_goal: false) see all but it.
 recovery_observation_indices: null
+# For a prior that also sees the control steps spent of its episode, as a share of
+# its horizon (environment.observe_time): the horizon, recovery_horizon. Null takes
+# it from the prior's experiment. Q_R is then asked with none spent (recovering
+# within the horizon), and the prior acts with the steps of its current recovery.
+recovery_time_horizon: null
 # The behavior action is only taken if Q_R(s, a) >= recovery_threshold.
 recovery_threshold: 0.99
 # Steps the recovery prior keeps control on the system once it takes over, the
